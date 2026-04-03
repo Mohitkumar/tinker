@@ -135,15 +135,43 @@ tinker fix INC-abc123                        # show proposed fix
 tinker fix INC-abc123 --approve             # validate + apply + open PR
 
 # ── Raw observability (no AI) ─────────────────────────────────────
-tinker logs payments-api
+tinker tail payments-api                             # stream live logs
+tinker tail payments-api -q "level:ERROR"            # stream filtered live logs
+tinker tail payments-api -q 'level:(ERROR OR WARN) AND "timeout"'
+tinker logs payments-api                             # fetch recent logs
 tinker logs payments-api -q "level:ERROR" --since 30m -n 100
-tinker logs payments-api -q 'level:(ERROR OR WARN) AND "timeout"'
 tinker metrics payments-api Errors --since 2h
 tinker monitor --services payments-api,auth-service
 
 # ── Help ──────────────────────────────────────────────────────────
 tinker help
 ```
+
+---
+
+## Live log streaming — `tinker tail`
+
+`tinker tail` streams new log entries as they arrive, using the backend's native streaming where available and falling back to polling elsewhere.
+
+```bash
+tinker tail payments-api                              # all logs
+tinker tail payments-api -q "level:ERROR"             # errors only
+tinker tail payments-api -q 'level:(ERROR OR WARN) AND "database"'
+tinker tail auth-service --poll 5                     # poll every 5s
+```
+
+| Backend | Mechanism | Latency |
+|---|---|---|
+| `grafana` / Loki | Native websocket (`/loki/api/v1/tail`) | Real-time |
+| `cloudwatch` | Poll `query_logs` every N seconds | ≈ poll interval |
+| `gcp` | Poll `query_logs` every N seconds | ≈ poll interval |
+| `azure` | Poll `query_logs` every N seconds | ≈ poll interval |
+| `datadog` | Poll `query_logs` every N seconds | ≈ poll interval |
+| `elastic` | Poll `query_logs` every N seconds | ≈ poll interval |
+
+The Loki websocket tail automatically falls back to polling if `websockets` is not installed or the connection fails.
+
+All [unified query syntax](#unified-query-language) works the same way — `level:ERROR`, `"timeout"`, `NOT "health check"`, etc.
 
 ---
 
@@ -399,9 +427,10 @@ Tinker uses a single query syntax across all backends. You write it once; Tinker
 ### Examples
 
 ```bash
-# Same query works on every backend
-tinker logs payments-api -q 'level:ERROR AND "timeout"'
-tinker logs auth-service  -q 'level:(ERROR OR WARN) AND "database"'
+# Same query works on every backend — for both tail and logs
+tinker tail payments-api  -q 'level:ERROR AND "timeout"'
+tinker tail auth-service  -q 'level:(ERROR OR WARN) AND "database"'
+tinker logs payments-api  -q 'level:ERROR AND "timeout"' --since 1h
 tinker logs orders-api    -q 'NOT "health check" AND level:ERROR'
 ```
 
@@ -476,6 +505,8 @@ cd local-dev
 **4. Analyze with Tinker:**
 
 ```bash
+tinker tail payments-api                             # live stream
+tinker tail payments-api -q 'level:ERROR'            # filtered live stream
 tinker analyze payments-api --since 5m -v
 tinker logs payments-api -q 'level:ERROR AND "timeout"'
 ```
