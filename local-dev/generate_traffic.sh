@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-BASE_URL="${PAYMENTS_API_URL:-http://localhost:7000}"
+BASE_URL="${PAYMENTS_API_URL:-http://localhost:7001}"
 MODE="${1:-steady}"
 
 # ── helpers ────────────────────────────────────────────────────────────────────

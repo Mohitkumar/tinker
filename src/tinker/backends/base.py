@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import AsyncGenerator
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -93,6 +95,37 @@ class ObservabilityBackend(ABC):
     ) -> list[Anomaly]:
         """Detect anomalies for a service over a recent time window."""
         ...
+
+    # ── Streaming (non-abstract, poll-based default) ──────────────────────────
+
+    async def tail_logs(
+        self,
+        service: str,
+        query: str = "*",
+        poll_interval: float = 2.0,
+    ) -> AsyncGenerator[LogEntry, None]:
+        """Stream new log entries as they arrive.
+
+        Default implementation polls query_logs every *poll_interval* seconds,
+        deduplicating by timestamp. Backends that support native streaming
+        (e.g. Loki websocket) should override this.
+        """
+        seen: set[tuple[datetime, str]] = set()
+        # Seed with the last 5 seconds so we don't flood on startup
+        cursor = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+        while True:
+            now = datetime.now(timezone.utc)
+            entries = await self.query_logs(service, query, cursor, now, limit=200)
+            new_cursor = cursor
+            for entry in sorted(entries, key=lambda e: e.timestamp):
+                key = (entry.timestamp, entry.message)
+                if key not in seen:
+                    seen.add(key)
+                    new_cursor = max(new_cursor, entry.timestamp)
+                    yield entry
+            cursor = new_cursor
+            await asyncio.sleep(poll_interval)
 
     # ── Convenience helpers (non-abstract) ────────────────────────────────────
 

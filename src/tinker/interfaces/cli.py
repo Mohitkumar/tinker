@@ -133,6 +133,26 @@ def logs(
 
 
 @app.command()
+def tail(
+    service: str = typer.Argument(..., help="Service name"),
+    query: str = typer.Option("*", "--query", "-q", help="Filter query (unified syntax)"),
+    poll: float = typer.Option(2.0, "--poll", "-p", help="Poll interval in seconds (poll-based backends)"),
+) -> None:
+    """[bold cyan]Stream live logs for a service (Ctrl-C to stop).[/bold cyan]
+
+    Uses the backend's native streaming where available (Loki websocket),
+    falls back to polling for other backends.
+
+    Examples:
+
+      tinker tail payments-api
+      tinker tail payments-api --query "level:ERROR"
+      tinker tail auth-service -q 'level:(ERROR OR WARN) AND "timeout"'
+    """
+    asyncio.run(_tail(service, query, poll))
+
+
+@app.command()
 def metrics(
     service: str = typer.Argument(..., help="Service name"),
     metric: str = typer.Argument(..., help="Metric name"),
@@ -338,6 +358,30 @@ async def _logs(service: str, query: str, since: str, limit: int) -> None:
     console.print(table)
 
 
+async def _tail(service: str, query: str, poll: float) -> None:
+    from tinker.backends import get_backend
+
+    backend = get_backend()
+
+    level_styles = {"ERROR": "red", "CRITICAL": "bold red", "WARN": "yellow", "WARNING": "yellow", "INFO": "green", "DEBUG": "dim"}
+
+    console.print(
+        f"[bold green]Tailing[/bold green] [cyan]{service}[/cyan]"
+        + (f" · [dim]{query}[/dim]" if query != "*" else "")
+        + "  [dim](Ctrl-C to stop)[/dim]"
+    )
+    console.print()
+
+    try:
+        async for entry in backend.tail_logs(service, query, poll_interval=poll):
+            style = level_styles.get(entry.level.upper(), "white")
+            ts = entry.timestamp.strftime("%H:%M:%S")
+            level = f"[{style}]{entry.level:<8}[/{style}]"
+            console.print(f"[dim]{ts}[/dim]  {level}  {entry.message[:200]}")
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stopped.[/dim]")
+
+
 async def _metrics(service: str, metric: str, since: str) -> None:
     from datetime import datetime, timezone
     from tinker.backends import get_backend
@@ -415,7 +459,9 @@ def _print_help() -> None:
             ("tinker fix <id> --approve",         "Apply fix and open a GitHub PR"),
         ]),
         ("Observability", [
-            ("tinker logs <service>",             "Tail raw logs (no AI)"),
+            ("tinker tail <service>",             "Stream live logs (Ctrl-C to stop)"),
+            ("tinker tail <svc> -q 'level:ERROR'","Stream filtered live logs"),
+            ("tinker logs <service>",             "Fetch recent logs (no AI)"),
             ("tinker logs <svc> -q 'level:ERROR'","Filter logs by query"),
             ("tinker metrics <svc> <metric>",     "Show metric time series"),
             ("tinker monitor --services <svc>",   "Continuous anomaly detection loop"),

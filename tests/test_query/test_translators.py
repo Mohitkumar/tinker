@@ -52,13 +52,13 @@ class TestLoki:
 
     def test_wildcard(self):
         out = self._t("*")
-        assert f'service_name="{SVC}"' in out
+        assert f'service="{SVC}"' in out
 
     def test_level_in_stream(self):
         out = self._t("level:ERROR")
         # level:ERROR is promoted to stream selector
         assert 'level="ERROR"' in out
-        assert f'service_name="{SVC}"' in out
+        assert f'service="{SVC}"' in out
 
     def test_text_line_filter(self):
         out = self._t('"timeout"')

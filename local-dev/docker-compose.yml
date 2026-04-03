@@ -1,35 +1,14 @@
 version: "3.9"
 
-# Manual test stack.
-# Brings up: Tinker server + dummy payments-api + Loki + Prometheus + Grafana UI.
+# Local development infrastructure.
+# Starts the observability stack (Loki + Prometheus + Grafana + dummy payments-api).
+# The Tinker server is intentionally excluded — run it from your IDE/terminal.
 #
 # Usage:
-#   cd tests/manual
-#   cp ../../.env.example .env && edit .env   (only ANTHROPIC_API_KEY required)
+#   cd local-dev
 #   ./run.sh
 
 services:
-
-  # ── Tinker Agent Server ────────────────────────────────────────────────────
-  tinker:
-    build:
-      context: ../..
-      dockerfile: deploy/Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      TINKER_BACKEND: grafana
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      GRAFANA_LOKI_URL: http://loki:3100
-      GRAFANA_PROMETHEUS_URL: http://prometheus:9090
-      GRAFANA_TEMPO_URL: http://tempo:3200
-      TINKER_API_KEYS: ${TINKER_API_KEYS:-[]}
-      TINKER_LOG_LEVEL: DEBUG
-    depends_on:
-      loki:
-        condition: service_healthy
-      prometheus:
-        condition: service_healthy
 
   # ── Dummy payments-api (generates logs + metrics) ─────────────────────────
   payments-api:
@@ -38,7 +17,7 @@ services:
     volumes:
       - ./dummy_server.py:/app/dummy_server.py:ro
     ports:
-      - "7000:7000"
+      - "7001:7000"
     environment:
       PORT: 7000
       SERVICE_NAME: payments-api

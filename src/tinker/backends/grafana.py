@@ -33,7 +33,8 @@ Any cloud provider can feed this stack:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+import json
+from typing import Any, AsyncGenerator
 
 import httpx
 import structlog
@@ -122,7 +123,7 @@ class GrafanaBackend(ObservabilityBackend):
         entries: list[LogEntry] = []
         for stream in data.get("data", {}).get("result", []):
             stream_labels: dict[str, str] = stream.get("stream", {})
-            svc = stream_labels.get("service_name") or stream_labels.get("app") or service
+            svc = stream_labels.get("service") or stream_labels.get("service_name") or stream_labels.get("app") or service
             level = (
                 stream_labels.get("level")
                 or stream_labels.get("severity")
@@ -141,6 +142,82 @@ class GrafanaBackend(ObservabilityBackend):
 
         return entries
 
+    # ── Loki native tail (websocket) ──────────────────────────────────────────
+
+    async def tail_logs(
+        self,
+        service: str,
+        query: str = "*",
+        poll_interval: float = 2.0,
+    ) -> AsyncGenerator[LogEntry, None]:
+        """Stream new log entries using Loki's websocket tail API.
+
+        Falls back to poll-based tailing if websockets are unavailable.
+        """
+        if not self._loki_url:
+            log.warning("grafana.loki_not_configured — falling back to poll tail")
+            async for entry in super().tail_logs(service, query, poll_interval):
+                yield entry
+            return
+
+        from tinker.query import parse_query, translate_for
+        ast = parse_query(query)
+        logql = translate_for("grafana", ast, service=service)
+
+        # Convert http(s):// to ws(s):// for the websocket endpoint
+        ws_base = self._loki_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_url = f"{ws_base}/loki/api/v1/tail"
+
+        params = {"query": logql, "delay_for": "0", "limit": "50"}
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        full_url = f"{ws_url}?{qs}"
+
+        try:
+            import websockets  # type: ignore[import]
+        except ImportError:
+            log.warning("grafana.websockets_not_installed — falling back to poll tail")
+            async for entry in super().tail_logs(service, query, poll_interval):
+                yield entry
+            return
+
+        extra_headers = {}
+        if self._headers.get("Authorization"):
+            extra_headers["Authorization"] = self._headers["Authorization"]
+
+        try:
+            async with websockets.connect(full_url, additional_headers=extra_headers) as ws:
+                log.debug("grafana.tail.connected", url=full_url)
+                async for raw in ws:
+                    try:
+                        data = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    for stream in data.get("streams", []):
+                        stream_labels: dict[str, str] = stream.get("stream", {})
+                        level = (
+                            stream_labels.get("level")
+                            or stream_labels.get("severity")
+                            or "INFO"
+                        ).upper()
+                        svc = (
+                            stream_labels.get("service")
+                            or stream_labels.get("service_name")
+                            or service
+                        )
+                        for ts_ns, line in stream.get("values", []):
+                            yield LogEntry(
+                                timestamp=_ns_to_dt(ts_ns),
+                                message=sanitize_log_content(line),
+                                level=level,
+                                service=svc,
+                                extra=stream_labels,
+                            )
+        except Exception as exc:
+            log.warning("grafana.tail.websocket_failed", error=str(exc))
+            log.info("grafana.tail.fallback_to_poll")
+            async for entry in super().tail_logs(service, query, poll_interval):
+                yield entry
+
     # ── Metrics via Prometheus ────────────────────────────────────────────────
 
     async def get_metrics(
@@ -156,7 +233,7 @@ class GrafanaBackend(ObservabilityBackend):
             log.warning("grafana.prometheus_not_configured")
             return []
 
-        labels = {**(dimensions or {}), "service_name": service}
+        labels = {**(dimensions or {}), "job": service}
         label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
         promql = f'{metric_name}{{{label_str}}}'
 
@@ -238,7 +315,7 @@ class GrafanaBackend(ObservabilityBackend):
         try:
             error_logs = await self.query_logs(
                 service,
-                f'{{service_name="{service}"}} |= `error` | logfmt | level =~ "error|ERROR|critical|CRITICAL"',
+                f'{{service="{service}"}} |= `error` | logfmt | level =~ "error|ERROR|critical|CRITICAL"',
                 start,
                 end,
                 limit=200,

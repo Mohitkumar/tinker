@@ -32,6 +32,10 @@ from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, T
 # Fields that map to Loki stream selector labels
 _LABEL_FIELDS = {"level", "service", "service_name", "app", "env", "namespace"}
 
+# Canonical service label used in stream selectors — must match what the log
+# shipper / dummy server actually sets on Loki streams.
+_SERVICE_LABEL = "service"
+
 
 @dataclass
 class _LogQL:
@@ -96,14 +100,12 @@ def translate(node: QueryNode, service: str) -> str:
     _collect(node, acc)
 
     # Stream selector
-    stream: dict[str, str] = {"service_name": service}
+    stream: dict[str, str] = {_SERVICE_LABEL: service}
     # Promote exact label matches into the stream selector
     for k, v in acc.labels.items():
-        if k not in ("service", "service_name"):   # service already set
-            stream[k] = v  # type: ignore[assignment]
-        # level in stream selector is a nice optimisation
-    if "level" in acc.labels:
-        stream["level"] = acc.labels["level"]  # type: ignore[assignment]
+        if k in ("service", "service_name"):
+            continue  # service already set above
+        stream[k] = v  # type: ignore[assignment]
 
     stream_str = ", ".join(f'{k}="{v}"' for k, v in stream.items())
     logql = "{" + stream_str + "}"

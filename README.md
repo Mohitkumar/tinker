@@ -112,22 +112,7 @@ cp .env.example .env        # edit with your values
 uv run tinker-server        # start the server
 ```
 
-For local dev with no cloud account (Grafana stack in Docker):
-
-```bash
-cp .env.example .env        # only ANTHROPIC_API_KEY needed
-docker compose -f deploy/docker-compose.yml up
-# Tinker server → http://localhost:8000
-# Grafana UI    → http://localhost:3000
-```
-
-For end-to-end testing with a realistic dummy service that generates logs and metrics:
-
-```bash
-cd tests/manual && ./run.sh   # includes dummy payments-api
-./generate_traffic.sh incident
-tinker analyze payments-api --since 5m
-```
+For a full local development environment with a realistic dummy service, see [Local development](#local-development) below.
 
 ---
 
@@ -432,36 +417,88 @@ Raw backend-native queries (LogQL `{...}`, Insights `| filter ...`, KQL `| where
 
 ---
 
-## Manual testing
+## Local development
 
-A local end-to-end test stack lives in [`tests/manual/`](tests/manual/). It starts Tinker, a dummy `payments-api` that emits logs at every level, Loki, Prometheus, and Grafana — no cloud account needed.
+The [`local-dev/`](local-dev/) directory contains everything you need to develop Tinker against a real observability stack without a cloud account.
+
+### What's in the stack
+
+| Service | Port | Purpose |
+|---|---|---|
+| `payments-api` | 7000 | Dummy microservice — emits structured logs at all levels + Prometheus metrics |
+| `loki` | 3100 | Log storage |
+| `prometheus` | 9090 | Metrics (scrapes payments-api + host Tinker server) |
+| `grafana` | 3000 | Visual dashboards |
+
+The Tinker server is **not** in this compose — you run it from your IDE so you get hot reload, breakpoints, and logs in your terminal.
+
+### Setup
+
+**1. Start the infrastructure:**
 
 ```bash
-cd tests/manual
-cp ../../.env.example .env   # set ANTHROPIC_API_KEY
+cd local-dev
 ./run.sh
 ```
 
-Generate traffic to create realistic log data:
+**2. Start the Tinker server in your IDE / terminal:**
 
 ```bash
-# Steady mixed traffic (Ctrl-C to stop)
-./generate_traffic.sh
+cp .env.example .env
+# Edit .env — set ANTHROPIC_API_KEY and these backend vars:
+#   TINKER_BACKEND=grafana
+#   GRAFANA_LOKI_URL=http://localhost:3100
+#   GRAFANA_PROMETHEUS_URL=http://localhost:9090
+#   GRAFANA_TEMPO_URL=http://localhost:3200
 
-# Simulate an incident: error spike + circuit breaker open
-./generate_traffic.sh incident
-
-# 100 rapid requests then exit
-./generate_traffic.sh burst
+uv run tinker-server
+# Server → http://localhost:8000
 ```
 
-Then analyze with Tinker:
+**3. Generate traffic against the dummy service:**
+
+```bash
+cd local-dev
+
+# Steady mixed traffic until Ctrl-C (60% ok, 15% error, 10% warn, 10% slow, 5% debug)
+./generate_traffic.sh
+
+# Simulate an incident: error spike followed by a circuit breaker opening
+./generate_traffic.sh incident
+
+# Fire 100 rapid requests then exit
+./generate_traffic.sh burst
+
+# Quiet mode — only ok + debug, no errors
+./generate_traffic.sh quiet
+```
+
+**4. Analyze with Tinker:**
 
 ```bash
 tinker analyze payments-api --since 5m -v
+tinker logs payments-api -q 'level:ERROR AND "timeout"'
 ```
 
-The dummy server exposes endpoints for each log level (`/pay/ok`, `/pay/error`, `/pay/slow`, `/pay/warn`, `/pay/critical`, `/pay/debug`) and Prometheus metrics at `/metrics`. See [`tests/manual/README.md`](tests/manual/README.md) for full details.
+### Dummy service endpoints
+
+| Endpoint | Emits |
+|---|---|
+| `GET /pay` | Random weighted scenario |
+| `GET /pay/ok` | INFO — successful payment |
+| `GET /pay/error` | ERROR — payment failed (random error message) |
+| `GET /pay/slow` | WARN — slow database query |
+| `GET /pay/warn` | WARN — retry scenario |
+| `GET /pay/critical` | CRITICAL — circuit breaker open |
+| `GET /pay/debug` | DEBUG — cache hit |
+| `GET /metrics` | Prometheus metrics |
+| `GET /health` | Health check |
+
+### Tear down
+
+```bash
+cd local-dev && ./run.sh down
+```
 
 ---
 
@@ -469,11 +506,11 @@ The dummy server exposes endpoints for each log level (`/pay/ok`, `/pay/error`, 
 
 ```bash
 uv sync
-uv run pytest             # all tests
-uv run pytest -k backend  # backend tests only
+uv run pytest                    # all tests
+uv run pytest -k backend         # backend unit tests only
 uv run pytest tests/test_query/  # unified query language tests
-uv run ruff check src/    # lint
-uv run mypy src/          # type check
+uv run ruff check src/           # lint
+uv run mypy src/                 # type check
 ```
 
 See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the phased roadmap.
