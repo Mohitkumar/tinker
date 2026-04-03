@@ -77,17 +77,18 @@ class DatadogBackend(ObservabilityBackend):
     ) -> list[LogEntry]:
         """Search Datadog logs using the Logs Search API v2.
 
-        The `query` parameter uses Datadog log query syntax:
-          service:payments status:error
-          @http.status_code:[500 TO 599]
-        If it's a plain string we build the query automatically.
+        `query` is a Tinker unified query string (e.g. 'level:ERROR AND "timeout"').
+        Raw Datadog queries (starting with '@' or 'service:') are passed through.
         """
         log.debug("datadog.query_logs", service=service)
 
-        if not query.startswith("@") and ":" not in query:
-            dd_query = f"service:{service} ({query})"
+        if query.startswith("@") or query.startswith("service:"):
+            # Raw Datadog query — pass through
+            dd_query = query
         else:
-            dd_query = f"service:{service} {query}"
+            from tinker.query import parse_query, translate_for
+            ast = parse_query(query)
+            dd_query = translate_for("datadog", ast, service=service)
 
         payload: dict[str, Any] = {
             "filter": {

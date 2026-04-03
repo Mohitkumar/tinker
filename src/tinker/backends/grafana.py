@@ -86,18 +86,21 @@ class GrafanaBackend(ObservabilityBackend):
     ) -> list[LogEntry]:
         """Query Loki using LogQL.
 
-        If `query` is a plain string (no LogQL syntax), we wrap it as:
-          {service_name="<service>"} |= "<query>"
-        Otherwise it is passed through as-is (full LogQL expression).
+        `query` is a Tinker unified query string (e.g. 'level:ERROR AND "timeout"').
+        It is translated to LogQL automatically. Raw LogQL (starting with '{') is
+        passed through unchanged for backwards compatibility.
         """
         if not self._loki_url:
             log.warning("grafana.loki_not_configured")
             return []
 
-        if not query.startswith("{"):
-            logql = f'{{service_name="{service}"}} |= `{query}`'
-        else:
+        if query.startswith("{"):
+            # Raw LogQL — pass through unchanged
             logql = query
+        else:
+            from tinker.query import parse_query, translate_for
+            ast = parse_query(query)
+            logql = translate_for("grafana", ast, service=service)
 
         params = {
             "query": logql,

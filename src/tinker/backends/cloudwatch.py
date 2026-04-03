@@ -39,16 +39,28 @@ class CloudWatchBackend(ObservabilityBackend):
         end: datetime,
         limit: int = 100,
     ) -> list[LogEntry]:
-        """Run a CloudWatch Logs Insights query."""
+        """Run a CloudWatch Logs Insights query.
+
+        `query` is a Tinker unified query string (e.g. 'level:ERROR AND "timeout"').
+        Raw Insights queries (containing '|') are passed through unchanged.
+        """
         log_group = f"/aws/lambda/{service}"  # adjust per convention
         log.debug("cloudwatch.query_logs", service=service, log_group=log_group)
+
+        if "|" in query or query == "*":
+            # Raw Insights query — pass through
+            insights_query = query
+        else:
+            from tinker.query import parse_query, translate_for
+            ast = parse_query(query)
+            insights_query = translate_for("cloudwatch", ast, service=service)
 
         response: dict[str, Any] = await asyncio.to_thread(
             self._logs.start_query,
             logGroupName=log_group,
             startTime=int(start.timestamp()),
             endTime=int(end.timestamp()),
-            queryString=query,
+            queryString=insights_query,
             limit=limit,
         )
         query_id: str = response["queryId"]

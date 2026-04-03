@@ -73,22 +73,20 @@ class AzureBackend(ObservabilityBackend):
     ) -> list[LogEntry]:
         """Run a KQL query against the configured Log Analytics workspace.
 
-        The `query` parameter is KQL. For simple keyword search the caller
-        can pass a plain string and we wrap it in a search() call.
+        `query` is a Tinker unified query string (e.g. 'level:ERROR AND "timeout"').
+        Raw KQL (containing '|' or KQL keywords) is passed through unchanged.
         """
         from azure.monitor.query import LogsQueryStatus
 
         log.debug("azure.query_logs", service=service)
 
-        # If the query doesn't look like KQL, wrap it
-        if not any(kw in query for kw in ["|", "where", "search", "union"]):
-            kql = (
-                f"AppTraces | where AppRoleName == '{service}'"
-                f" | where Message contains '{query}'"
-                f" | order by TimeGenerated desc | take {limit}"
-            )
-        else:
+        if any(kw in query for kw in ["|", "where ", "search ", "union "]):
+            # Raw KQL — pass through
             kql = query
+        else:
+            from tinker.query import parse_query, translate_for
+            ast = parse_query(query)
+            kql = translate_for("azure", ast, service=service) + f" | take {limit}"
 
         timespan = (end - start)
 

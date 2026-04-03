@@ -35,13 +35,25 @@ class GCPBackend(ObservabilityBackend):
 
         log.debug("gcp.query_logs", service=service)
 
-        # Cloud Logging filter syntax
-        filter_str = (
-            f'resource.labels.service_name="{service}" '
-            f'AND ({query}) '
-            f'AND timestamp>="{start.isoformat()}" '
-            f'AND timestamp<="{end.isoformat()}"'
-        )
+        # Translate unified query to GCP filter; raw GCP filters (containing '=')
+        # that look like native syntax are passed through unchanged.
+        if "resource.labels" in query or query == "*":
+            native_filter = (
+                f'resource.labels.service_name="{service}" '
+                f'AND ({query}) '
+                f'AND timestamp>="{start.isoformat()}" '
+                f'AND timestamp<="{end.isoformat()}"'
+            )
+        else:
+            from tinker.query import parse_query, translate_for
+            ast = parse_query(query)
+            base = translate_for("gcp", ast, service=service)
+            native_filter = (
+                f'{base} '
+                f'AND timestamp>="{start.isoformat()}" '
+                f'AND timestamp<="{end.isoformat()}"'
+            )
+        filter_str = native_filter
 
         entries = await asyncio.to_thread(
             lambda: list(

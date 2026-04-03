@@ -36,15 +36,16 @@ class ElasticBackend(ObservabilityBackend):
     ) -> list[LogEntry]:
         log.debug("elastic.query_logs", service=service)
 
+        from tinker.query import parse_query, translate_for
+        ast = parse_query(query)
+        query_dsl = translate_for("elastic", ast, service=service)
+
         body: dict[str, Any] = {
             "size": limit,
             "sort": [{"@timestamp": {"order": "desc"}}],
             "query": {
                 "bool": {
-                    "must": [
-                        {"query_string": {"query": query}},
-                        {"term": {"service.name": service}},
-                    ],
+                    "must": [query_dsl],
                     "filter": [
                         {
                             "range": {
