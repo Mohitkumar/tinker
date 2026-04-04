@@ -88,18 +88,156 @@ Backend  ✓ OK     cloudwatch
 
 ---
 
-## Examples
+## Commands
 
 All commands take a **service name** as the first positional argument — this is the name of the service in your observability backend (e.g. the ECS service name, Cloud Run service name, Loki `service` label, etc.).
 
+### Local vs server mode
+
+| Command | Local | Server | Notes |
+|---|---|---|---|
+| `tinker anomaly` | ✓ | ✓ | Fast — no LLM |
+| `tinker monitor` | ✓ | ✓ | Interactive REPL; `explain`/`fix` call LLM |
+| `tinker watch start` | ✓ | — | Daemon runs on this machine using local credentials |
+| `tinker watch list/stop/clean` | ✓ | — | Manages local daemons |
+| `tinker logs` | ✓ | ✓ | — |
+| `tinker tail` | ✓ | ✓ | — |
+| `tinker metrics` | ✓ | ✓ | — |
+| `tinker analyze` | ✓ | ✓ | Full LLM RCA |
+| `tinker fix` | ✓ | ✓ | Requires incident ID from `analyze` |
+| `tinker doctor` | ✓ | ✓ | — |
+
+> `tinker watch` runs the anomaly detection loop as a background process on your **local machine**. In server mode, the server already runs the monitoring loop — use the Slack bot or `tinker anomaly` to query it.
+
+---
+
+### Anomaly detection — `tinker anomaly`
+
+Fast anomaly check with no LLM cost. Directly calls `detect_anomalies` on the backend and returns a table.
+
 ```bash
-# ── Incident analysis ──────────────────────────────────────────────────────
+tinker anomaly payments-api                          # last 1h
+tinker anomaly payments-api --since 2h               # custom window
+tinker anomaly payments-api --severity high          # filter by severity
+tinker anomaly payments-api --since 30m --json       # machine-readable output
+```
+
+**Output:** table of anomalies with severity, metric name, description, number of unique error patterns, and number of distinct stack traces detected.
+
+---
+
+### Interactive monitor — `tinker monitor`
+
+Opens an interactive REPL session that displays anomalies and lets you drill down without leaving the terminal. LLM is only invoked when you explicitly ask for `explain` or `fix`.
+
+```bash
+tinker monitor payments-api
+tinker monitor payments-api --since 2h
+```
+
+```
+┌─ Tinker Monitor  payments-api  window: 60m ──────────────────────────┐
+
+ Anomalies — payments-api (last 60m)
+ #   Severity   Metric          Description                  Patterns  Traces
+ 1   HIGH       error_count     847 errors in 10m            2         1
+ 2   MEDIUM     latency_p99     2.4s avg, threshold 1s       —         —
+
+Commands: explain <n> · fix <n> · filter --severity high · refresh
+
+[payments-api] >
+```
+
+#### REPL subcommands
+
+| Command | LLM? | Description |
+|---|---|---|
+| `list` / `ls` | — | Re-display the anomaly table |
+| `refresh` / `r` | — | Re-fetch anomalies from the backend |
+| `filter --severity high` | — | Show only anomalies of given severity |
+| `filter --since 30m` | — | Change the look-back window and re-fetch |
+| `explain <n>` | ✓ | LLM explanation of anomaly #n — uses pre-built summary, not raw logs |
+| `fix <n>` | ✓ | LLM-proposed code fix using repo tools (glob, read, search, blame) |
+| `approve` | — | Apply the pending fix and open a GitHub PR |
+| `session clean` | — | Delete sessions older than 24 h from `~/.tinker/tinker.db` |
+| `help` / `?` | — | Show command reference |
+| `quit` / `q` | — | Exit |
+
+#### LLM cost control
+
+`explain` sends a compact summary (~300–1000 tokens) regardless of how many errors occurred:
+
+- **Deduplication** — identical log lines are collapsed into one pattern with a count
+- **Stack trace extraction** — Python/Java/Node/Go/Ruby traces are detected, deduplicated by normalised signature, and trimmed to the first 10 lines
+- **Template normalisation** — variable parts (IPs, timestamps, UUIDs, numbers) are replaced with placeholders so `timeout to 10.0.0.3:5432` and `timeout to 10.0.0.7:5432` count as the same pattern
+
+Example: 1000 raw error logs → 2 unique patterns + 1 stack trace → 1084-char LLM context.
+
+#### `fix` requirements
+
+`fix <n>` searches your codebase for the root cause using these tools:
+`glob_files`, `get_file`, `search_code`, `get_recent_commits`, `suggest_fix`
+
+| Setting | How to configure |
+|---|---|
+| Repo path | Set `TINKER_REPO_PATH` in `.env`, or `tinker monitor` auto-detects the current git repo |
+| GitHub PR | `GITHUB_TOKEN` + `GITHUB_REPO` required for `approve` — shown as error if missing |
+
+If `TINKER_REPO_PATH` is not configured and no git repo is found in the current directory, the REPL prompts once and writes the path to the session.
+
+---
+
+### Background watches — `tinker watch`
+
+Runs anomaly detection on a schedule as a detached background process. Posts to Slack when the anomaly set changes (deduplicates — same anomalies are not re-posted).
+
+```bash
+# Start a watch
+tinker watch start payments-api --channel "#incidents"
+tinker watch start payments-api --channel "#incidents" --interval 120
+
+# List running watches
+tinker watch list
+
+# Stop a watch
+tinker watch stop watch-abc123
+
+# Remove stopped/dead watches and sessions older than 24 h
+tinker watch clean
+```
+
+**How it works:**
+1. `tinker watch start` spawns a detached process (`start_new_session=True`) that survives terminal close
+2. Process state (PID + `started_at`) is written to `~/.tinker/tinker.db`
+3. Each tick computes a hash of the current anomaly set; Slack is notified only when the hash changes
+4. `tinker watch stop` sends SIGTERM to the daemon; status is updated in the DB
+5. `tinker watch clean` removes dead PIDs (verified with `os.kill(pid, 0)` + `started_at` comparison, not PID alone)
+
+**Slack message format:**
+```
+🔔 Tinker Watch — anomalies detected in payments-api
+
+🟠 [HIGH] error_count — 847 errors in 10m (threshold: 10)
+🟡 [MEDIUM] latency_p99 — 2.4s avg in 10m (threshold: 1s)
+
+Detected at 2024-01-15 14:32 UTC
+Reply explain <n> in thread or run tinker monitor payments-api
+```
+
+Requires `SLACK_BOT_TOKEN` in `.env`. If not set, the watch still runs and logs to `~/.tinker/logs/<watch-id>.log`.
+
+---
+
+### Other commands
+
+```bash
+# ── Incident analysis (full LLM RCA) ──────────────────────────────────────
 tinker analyze payments-api                           # RCA for the last hour
 tinker analyze payments-api --since 2h               # look back further
 tinker analyze payments-api --since 2h -v            # stream agent reasoning
 tinker analyze payments-api --deep                   # extended thinking (slower, thorough)
 
-# ── Suggest and apply a fix ────────────────────────────────────────────────
+# ── Fix (from analyze output) ──────────────────────────────────────────────
 tinker fix INC-abc123                                # show the proposed fix
 tinker fix INC-abc123 --approve                      # apply fix and open a GitHub PR
 
@@ -118,10 +256,7 @@ tinker logs payments-api --resource rds -q 'level:ERROR AND "deadlock"'
 
 # ── Metrics ────────────────────────────────────────────────────────────────
 tinker metrics payments-api Errors --since 2h
-tinker metrics payments-api Latency --since 1h
-
-# ── Background monitoring ──────────────────────────────────────────────────
-tinker monitor --services payments-api,auth-service,orders-api
+tinker metrics payments-api Errors --resource ecs
 ```
 
 ### Mode override
@@ -129,8 +264,8 @@ tinker monitor --services payments-api,auth-service,orders-api
 `tinker.toml` sets the default mode. Override it per-command with `--mode`:
 
 ```bash
-tinker --mode local  logs payments-api -q 'level:ERROR'
-tinker --mode server analyze payments-api
+tinker --mode local  anomaly payments-api --since 2h
+tinker --mode server monitor payments-api
 ```
 
 ---
