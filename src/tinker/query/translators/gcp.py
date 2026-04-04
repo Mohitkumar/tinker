@@ -1,26 +1,19 @@
 """Translate a Tinker QueryNode to a GCP Cloud Logging filter string.
 
-GCP filter syntax uses `=`, `!=`, `:` (substring), `AND`, `OR`, `NOT`.
-https://cloud.google.com/logging/docs/view/logging-query-language
-
-Examples:
-    level:ERROR
-      → severity="ERROR" AND resource.labels.service_name="payments-api"
-
-    level:(ERROR OR WARN)
-      → (severity="ERROR" OR severity="WARNING") AND resource.labels.service_name="..."
-
-    "timeout" AND level:ERROR
-      → textPayload:"timeout" AND severity="ERROR" AND resource.labels.service_name="..."
-
-GCP uses "severity" not "level", and has specific severity names.
+resource:TYPE controls the resource.type filter:
+    resource:cloudrun  → resource.type="cloud_run_revision"
+    resource:gke       → resource.type="k8s_container"
+    resource:gce       → resource.type="gce_instance"
+    resource:cloudfn   → resource.type="cloud_function"
+    resource:appengine → resource.type="gae_app"
+    (no resource)      → resource.labels.service_name="{service}" (Cloud Run default)
 """
 
 from __future__ import annotations
 
 from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, TextFilter
+from tinker.query.resource import GCP_RESOURCE, extract_resource
 
-# GCP severity mapping
 _SEVERITY_MAP: dict[str, str] = {
     "debug":    "DEBUG",
     "info":     "INFO",
@@ -49,15 +42,16 @@ def _gcp_severity(v: str) -> str:
 
 
 def translate(node: QueryNode) -> str:
-    """Return a GCP Cloud Logging filter expression (without the service clause)."""
+    """Return a GCP filter expression (without service/resource clause)."""
     if isinstance(node, TextFilter):
         if node.text == "*":
             return ""
         return f'textPayload:"{node.text}"'
 
     if isinstance(node, FieldFilter):
+        if node.field == "resource":
+            return ""   # consumed by to_filter()
         gcp_field = _gcp_field(node.field)
-        # Normalise severity values
         values = (
             [_gcp_severity(v) for v in node.values]
             if node.field == "level"
@@ -70,10 +64,8 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, AndExpr):
         l, r = translate(node.left), translate(node.right)
-        if not l:
-            return r
-        if not r:
-            return l
+        if not l: return r
+        if not r: return l
         return f"({l}) AND ({r})"
 
     if isinstance(node, OrExpr):
@@ -88,9 +80,26 @@ def translate(node: QueryNode) -> str:
 
 
 def to_filter(node: QueryNode, service: str) -> str:
-    """Return a complete GCP Cloud Logging filter including service + time."""
-    service_clause = f'resource.labels.service_name="{service}"'
-    expr = translate(node)
+    """Return a complete GCP Cloud Logging filter including resource and service."""
+    resource_type, stripped = extract_resource(node)
+
+    if resource_type and resource_type in GCP_RESOURCE:
+        rtype, label_key = GCP_RESOURCE[resource_type]
+        resource_clause = (
+            f'resource.type="{rtype}" AND '
+            f'resource.labels.{label_key}="{service}"'
+        )
+    else:
+        # Default: Cloud Run / generic service label
+        resource_clause = f'resource.labels.service_name="{service}"'
+        if resource_type and resource_type not in GCP_RESOURCE:
+            # Unknown type — best-effort pass-through
+            resource_clause = (
+                f'resource.labels.service_name="{service}" AND '
+                f'resource.type="{resource_type}"'
+            )
+
+    expr = translate(stripped)
     if not expr:
-        return service_clause
-    return f"{service_clause} AND ({expr})"
+        return resource_clause
+    return f"{resource_clause} AND ({expr})"

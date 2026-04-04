@@ -42,26 +42,53 @@ class CloudWatchBackend(ObservabilityBackend):
         """Run a CloudWatch Logs Insights query.
 
         `query` is a Tinker unified query string (e.g. 'level:ERROR AND "timeout"').
+        resource:TYPE in the query controls which log group is targeted:
+            resource:lambda  → /aws/lambda/{service}
+            resource:ecs     → /ecs/{service}
+            resource:eks     → /aws/containerinsights/{service}/application
+            (no resource)    → auto-discover via describe_log_groups
         Raw Insights queries (containing '|') are passed through unchanged.
         """
-        log_group = f"/aws/lambda/{service}"  # adjust per convention
-        log.debug("cloudwatch.query_logs", service=service, log_group=log_group)
+        from tinker.query import parse_query, translate_for
+        from tinker.query.translators.cloudwatch import resolve_log_groups
 
         if "|" in query or query == "*":
-            # Raw Insights query — pass through
+            # Raw Insights query — pass through, use Lambda path as default
             insights_query = query
+            ast = None
         else:
-            from tinker.query import parse_query, translate_for
             ast = parse_query(query)
             insights_query = translate_for("cloudwatch", ast, service=service)
 
+        # Resolve which log group(s) to target
+        log_groups: list[str] = resolve_log_groups(ast, service) if ast else []
+        if not log_groups:
+            # Auto-discover: find all log groups whose name contains the service name
+            log.debug("cloudwatch.auto_discover_log_groups", service=service)
+            paginator = self._logs.get_paginator("describe_log_groups")
+            log_groups = []
+            for page in paginator.paginate(logGroupNamePattern=service):
+                log_groups.extend(g["logGroupName"] for g in page.get("logGroups", []))
+            if not log_groups:
+                log.warning("cloudwatch.no_log_groups_found", service=service)
+                return []
+
+        log.debug("cloudwatch.query_logs", service=service, log_groups=log_groups)
+
+        start_kwargs: dict[str, Any] = {
+            "startTime": int(start.timestamp()),
+            "endTime": int(end.timestamp()),
+            "queryString": insights_query,
+            "limit": limit,
+        }
+        if len(log_groups) == 1:
+            start_kwargs["logGroupName"] = log_groups[0]
+        else:
+            start_kwargs["logGroupNames"] = log_groups
+
         response: dict[str, Any] = await asyncio.to_thread(
             self._logs.start_query,
-            logGroupName=log_group,
-            startTime=int(start.timestamp()),
-            endTime=int(end.timestamp()),
-            queryString=insights_query,
-            limit=limit,
+            **start_kwargs,
         )
         query_id: str = response["queryId"]
 

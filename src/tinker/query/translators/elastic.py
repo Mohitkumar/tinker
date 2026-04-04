@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, TextFilter
+from tinker.query.resource import DEFAULT_ELASTIC_INDEX, ELASTIC_INDEX, extract_resource
 
 _FIELD_MAP: dict[str, str] = {
     "level":    "log.level",
@@ -45,6 +46,8 @@ def translate(node: QueryNode) -> dict[str, Any]:
         return {"match": {"message": node.text}}
 
     if isinstance(node, FieldFilter):
+        if node.field == "resource":
+            return {"match_all": {}}   # consumed by to_query()
         field = _es_field(node.field)
         values = [v.lower() for v in node.values] if node.field == "level" else node.values
         if len(values) == 1:
@@ -72,18 +75,28 @@ def translate(node: QueryNode) -> dict[str, Any]:
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
+def resolve_index(node: QueryNode) -> str:
+    """Return the Elasticsearch index pattern for the given query's resource type."""
+    resource_type, _ = extract_resource(node)
+    if resource_type:
+        return ELASTIC_INDEX.get(resource_type, DEFAULT_ELASTIC_INDEX)
+    return DEFAULT_ELASTIC_INDEX
+
+
 def to_query(node: QueryNode, service: str) -> dict[str, Any]:
     """Return a complete Elasticsearch query dict with the service filter applied."""
+    _, stripped = extract_resource(node)
     service_clause: dict[str, Any] = {"term": {"service.name": service}}
-    expr = translate(node)
+    expr = translate(stripped)
 
     if expr == {"match_all": {}}:
         return {"bool": {"must": [service_clause]}}
 
-    # Merge into a bool must
+    # Merge into a bool must — skip trivial match_all clauses from resource nodes
+    must_clauses: list[dict[str, Any]] = []
     if "bool" in expr and "must" in expr["bool"] and len(expr["bool"]) == 1:
-        musts: list[dict[str, Any]] = [service_clause, *expr["bool"]["must"]]
+        must_clauses = [c for c in expr["bool"]["must"] if c != {"match_all": {}}]
     else:
-        musts = [service_clause, expr]
+        must_clauses = [expr]
 
-    return {"bool": {"must": musts}}
+    return {"bool": {"must": [service_clause, *must_clauses]}}

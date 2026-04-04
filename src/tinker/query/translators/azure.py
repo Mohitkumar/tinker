@@ -1,104 +1,109 @@
-"""Translate a Tinker QueryNode to KQL (Kusto Query Language) for Azure Log Analytics.
+"""Translate a Tinker QueryNode to KQL for Azure Log Analytics.
 
-KQL is a pipe-based language. We generate a `where` clause that can be appended
-to the caller's base table query.
-
-Examples:
-    level:ERROR
-      → where SeverityLevel == "Error" and ServiceName == "payments-api"
-
-    level:(ERROR OR WARN) AND "timeout"
-      → where SeverityLevel in ("Error", "Warning") and ServiceName == "..."
-          and Message contains "timeout"
-
-Azure Log Analytics severity names differ from the standard:
-    ERROR   → Error
-    WARN    → Warning
-    INFO    → Information
-    DEBUG   → Verbose
-    CRITICAL→ Critical
+resource:TYPE controls which KQL table is queried:
+    resource:appservice → AppServiceConsoleLogs
+    resource:aks        → ContainerLog
+    resource:vm         → Syslog
+    resource:function   → FunctionAppLogs
+    resource:apigw      → ApiManagementGatewayLogs
+    resource:sql / db   → AzureDiagnostics
+    (no resource)       → AppTraces  (Application Insights default)
 """
 
 from __future__ import annotations
 
 from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, TextFilter
+from tinker.query.resource import AZURE_TABLE, extract_resource
 
 _SEVERITY_MAP: dict[str, str] = {
-    "debug":    "Verbose",
-    "verbose":  "Verbose",
-    "info":     "Information",
+    "debug":       "Verbose",
+    "verbose":     "Verbose",
+    "info":        "Information",
     "information": "Information",
-    "warn":     "Warning",
-    "warning":  "Warning",
-    "error":    "Error",
-    "critical": "Critical",
-    "fatal":    "Critical",
+    "warn":        "Warning",
+    "warning":     "Warning",
+    "error":       "Error",
+    "critical":    "Critical",
+    "fatal":       "Critical",
 }
 
-_FIELD_MAP: dict[str, str] = {
-    "level":    "SeverityLevel",
-    "service":  "ServiceName",
-    "message":  "Message",
-    "trace_id": "OperationId",
-    "span_id":  "Id",
+# Per-table column names for common fields
+_TABLE_FIELD_MAP: dict[str, dict[str, str]] = {
+    "AppTraces":              {"level": "SeverityLevel",  "service": "AppRoleName",    "message": "Message"},
+    "ContainerLog":           {"level": "LogEntrySource", "service": "ContainerName",  "message": "LogEntry"},
+    "AppServiceConsoleLogs":  {"level": "Level",          "service": "ScmType",        "message": "ResultDescription"},
+    "Syslog":                 {"level": "SeverityLevel",  "service": "Computer",       "message": "SyslogMessage"},
+    "FunctionAppLogs":        {"level": "Level",          "service": "FunctionName",   "message": "Message"},
+    "ApiManagementGatewayLogs": {"level": "IsRequestSuccess", "service": "ServiceName", "message": "ResponseBody"},
+    "AzureDiagnostics":       {"level": "Level",          "service": "ResourceId",     "message": "log_s"},
 }
 
+_DEFAULT_FIELD_MAP = {"level": "SeverityLevel", "service": "ServiceName", "message": "Message"}
 
-def _kql_field(name: str) -> str:
-    return _FIELD_MAP.get(name, name)
+
+def _get_field_map(table: str) -> dict[str, str]:
+    return _TABLE_FIELD_MAP.get(table, _DEFAULT_FIELD_MAP)
 
 
 def _kql_severity(v: str) -> str:
     return _SEVERITY_MAP.get(v.lower(), v)
 
 
-def translate(node: QueryNode) -> str:
-    """Return a KQL boolean expression suitable for use in a `where` clause."""
+def translate(node: QueryNode, field_map: dict[str, str]) -> str:
+    """Return a KQL boolean expression for use in a `where` clause."""
     if isinstance(node, TextFilter):
         if node.text == "*":
             return ""
+        msg_col = field_map.get("message", "Message")
         op = "==" if node.exact else "contains"
-        return f'Message {op} "{node.text}"'
+        return f'{msg_col} {op} "{node.text}"'
 
     if isinstance(node, FieldFilter):
-        field = _kql_field(node.field)
+        if node.field == "resource":
+            return ""   # consumed by to_kql_where()
+        kql_field = field_map.get(node.field, node.field)
         values = (
             [_kql_severity(v) for v in node.values]
             if node.field == "level"
             else node.values
         )
         if len(values) == 1:
-            return f'{field} == "{values[0]}"'
+            return f'{kql_field} == "{values[0]}"'
         vals_str = ", ".join(f'"{v}"' for v in values)
-        return f"{field} in ({vals_str})"
+        return f"{kql_field} in ({vals_str})"
 
     if isinstance(node, AndExpr):
-        l, r = translate(node.left), translate(node.right)
-        if not l:
-            return r
-        if not r:
-            return l
+        l, r = translate(node.left, field_map), translate(node.right, field_map)
+        if not l: return r
+        if not r: return l
         return f"({l}) and ({r})"
 
     if isinstance(node, OrExpr):
-        l, r = translate(node.left), translate(node.right)
+        l, r = translate(node.left, field_map), translate(node.right, field_map)
         return f"({l}) or ({r})"
 
     if isinstance(node, NotExpr):
-        inner = translate(node.operand)
-        return f"not ({inner})"
+        return f"not ({translate(node.operand, field_map)})"
 
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
-def to_kql_where(node: QueryNode, service: str, table: str = "AppTraces") -> str:
-    """Return a complete KQL query string with table, service filter, and where clause."""
-    expr = translate(node)
-    service_clause = f'ServiceName == "{service}"'
-    if not expr:
-        where_clause = service_clause
-    else:
-        where_clause = f"{service_clause} and ({expr})"
+def to_kql_where(node: QueryNode, service: str) -> str:
+    """Return a complete KQL query with the correct table and service filter."""
+    resource_type, stripped = extract_resource(node)
+
+    # Resolve table
+    table = "AppTraces"
+    if resource_type:
+        table = AZURE_TABLE.get(resource_type, "AppTraces")
+
+    field_map = _get_field_map(table)
+    svc_col   = field_map.get("service", "ServiceName")
+    expr      = translate(stripped, field_map)
+
+    service_clause = f'{svc_col} == "{service}"'
+    where_clause   = f"{service_clause} and ({expr})" if expr else service_clause
+
     return (
         f"{table}\n"
         f"| where {where_clause}\n"

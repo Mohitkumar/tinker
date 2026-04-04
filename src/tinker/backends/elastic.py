@@ -37,8 +37,11 @@ class ElasticBackend(ObservabilityBackend):
         log.debug("elastic.query_logs", service=service)
 
         from tinker.query import parse_query, translate_for
+        from tinker.query.translators.elastic import resolve_index
+
         ast = parse_query(query)
         query_dsl = translate_for("elastic", ast, service=service)
+        index = resolve_index(ast)
 
         body: dict[str, Any] = {
             "size": limit,
@@ -60,7 +63,8 @@ class ElasticBackend(ObservabilityBackend):
             },
         }
 
-        response = await self._client.search(index=self._index_pattern, body=body)
+        log.debug("elastic.query_logs", service=service, index=index)
+        response = await self._client.search(index=index, body=body)
         hits = response["hits"]["hits"]
         return [self._parse_hit(h) for h in hits]
 

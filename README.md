@@ -424,6 +424,27 @@ Tinker uses a single query syntax across all backends. You write it once; Tinker
 
 `severity` → `level`, `svc` / `app` → `service`, `msg` → `message`, `trace` → `trace_id`
 
+### Resource targeting
+
+Use `resource:TYPE` to tell Tinker which infrastructure resource to query. Without it, each backend uses its default (Lambda for CloudWatch, Cloud Run for GCP, AppTraces for Azure, etc.).
+
+| Resource type | CloudWatch log group | GCP resource.type | Azure KQL table | Loki label | ES index |
+|---|---|---|---|---|---|
+| `resource:lambda` | `/aws/lambda/{svc}` | `cloud_function` | `FunctionAppLogs` | `resource="lambda"` | `lambda-*` |
+| `resource:ecs` | `/ecs/{svc}` | `cloud_run_revision` | `ContainerLog` | `resource="container"` | `ecs-*` |
+| `resource:eks` | `/aws/containerinsights/{svc}/application` | `k8s_container` | `ContainerLog` | `resource="container"` | `kubernetes-*` |
+| `resource:ec2` | `/aws/ec2/{svc}` | `gce_instance` | `Syslog` | `resource="host"` | `syslog-*` |
+| `resource:rds` | `/aws/rds/instance/{svc}/postgresql` | `cloudsql_database` | `AzureDiagnostics` | `resource="db"` | `rds-*` |
+| `resource:apigw` | `API-Gateway-Execution-Logs_{svc}/prod` | — | `ApiManagementGatewayLogs` | `resource="apigw"` | `apigw-*` |
+| `resource:cloudrun` | `/ecs/{svc}` | `cloud_run_revision` | `ContainerLog` | `resource="container"` | `ecs-*` |
+| `resource:gke` | `/aws/containerinsights/{svc}/application` | `k8s_container` | `ContainerLog` | `resource="container"` | `kubernetes-*` |
+| `resource:aks` | `/ecs/{svc}` | `k8s_container` | `ContainerLog` | `resource="container"` | `kubernetes-*` |
+| `resource:vm` | `/aws/ec2/{svc}` | `gce_instance` | `Syslog` | `resource="host"` | `syslog-*` |
+| `resource:appservice` | — | — | `AppServiceConsoleLogs` | `resource="container"` | `appservice-*` |
+| (none) | auto-discover via `describe_log_groups` | `cloud_run_revision` | `AppTraces` | — | `logs-*` |
+
+Cross-cloud aliases (`resource:lambda` on GCP, `resource:ecs` on Azure, etc.) map to the closest equivalent — you never need to rewrite queries when switching backends.
+
 ### Examples
 
 ```bash
@@ -432,6 +453,12 @@ tinker tail payments-api  -q 'level:ERROR AND "timeout"'
 tinker tail auth-service  -q 'level:(ERROR OR WARN) AND "database"'
 tinker logs payments-api  -q 'level:ERROR AND "timeout"' --since 1h
 tinker logs orders-api    -q 'NOT "health check" AND level:ERROR'
+
+# Target a specific infrastructure resource type
+tinker logs payments-api  -q 'resource:lambda AND level:ERROR'
+tinker logs orders-api    -q 'resource:ecs AND "OOMKilled"'
+tinker logs user-api      -q 'resource:rds AND level:ERROR AND "deadlock"'
+tinker logs ingress       -q 'resource:apigw AND level:ERROR'
 ```
 
 ### How it maps
@@ -441,6 +468,7 @@ tinker logs orders-api    -q 'NOT "health check" AND level:ERROR'
 | `level:ERROR` | `level = 'ERROR'` | `{level="ERROR"}` | `severity="ERROR"` | `SeverityLevel == "Error"` | `status:error` |
 | `"timeout"` | `@message like /timeout/` | `\|= \`timeout\`` | `textPayload:"timeout"` | `Message contains "timeout"` | `"timeout"` |
 | `level:(ERROR OR WARN)` | `level in ['ERROR','WARN']` | `level=~\`ERROR\|WARN\`` | `(severity="ERROR" OR severity="WARNING")` | `SeverityLevel in ("Error","Warning")` | `status:(error OR warn)` |
+| `resource:ecs` | log group `/ecs/{svc}` | `{resource="container"}` | `resource.type="cloud_run_revision"` | table `ContainerLog` | (stripped) |
 
 Raw backend-native queries (LogQL `{...}`, Insights `| filter ...`, KQL `| where ...`) are still accepted and passed through unchanged.
 

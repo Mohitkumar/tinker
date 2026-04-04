@@ -5,22 +5,26 @@ Strategy:
   - FieldFilter on other fields         → line filter + logfmt field match
   - TextFilter                          → |= "text" line filter
   - Boolean logic                       → multiple pipe stages (AND) or alternation
+  - resource:TYPE                       → extra stream selector labels from LOKI_LABELS
 
 LogQL doesn't have a native OR across streams, so we express OR as a union where
 possible, falling back to a regexp line filter for text ORs.
 
 Output examples:
   level:ERROR
-    → {service_name="payments-api", level="ERROR"}
+    → {service="payments-api", level="ERROR"}
 
   level:ERROR AND "timeout"
-    → {service_name="payments-api", level="ERROR"} |= `timeout`
+    → {service="payments-api", level="ERROR"} |= `timeout`
 
   level:(ERROR OR WARN) AND "database"
-    → {service_name="payments-api"} | level=~`ERROR|WARN` |= `database`
+    → {service="payments-api"} | level=~`ERROR|WARN` |= `database`
+
+  resource:ecs AND level:ERROR
+    → {service="payments-api", resource="container", level="ERROR"}
 
   NOT "health"
-    → {service_name="payments-api"} != `health`
+    → {service="payments-api"} != `health`
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, TextFilter
+from tinker.query.resource import LOKI_LABELS, extract_resource
 
 # Fields that map to Loki stream selector labels
 _LABEL_FIELDS = {"level", "service", "service_name", "app", "env", "namespace"}
@@ -56,6 +61,8 @@ def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
 
     elif isinstance(node, FieldFilter):
         fname = node.field
+        if fname == "resource":
+            return   # consumed by translate() — added to stream selector there
         if fname in _LABEL_FIELDS:
             if len(node.values) == 1:
                 if negated:
@@ -96,11 +103,14 @@ def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
 
 def translate(node: QueryNode, service: str) -> str:
     """Return a complete LogQL query string for the given service."""
+    resource_type, stripped = extract_resource(node)
     acc = _LogQL()
-    _collect(node, acc)
+    _collect(stripped, acc)
 
-    # Stream selector
+    # Stream selector — start with service, add resource-specific labels
     stream: dict[str, str] = {_SERVICE_LABEL: service}
+    if resource_type and resource_type in LOKI_LABELS:
+        stream.update(LOKI_LABELS[resource_type])
     # Promote exact label matches into the stream selector
     for k, v in acc.labels.items():
         if k in ("service", "service_name"):

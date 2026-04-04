@@ -19,6 +19,7 @@ Datadog quirks:
 from __future__ import annotations
 
 from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, TextFilter
+from tinker.query.resource import extract_resource
 
 # Datadog reserved (no @ prefix) vs custom (@ prefix)
 _RESERVED = {"service", "host", "status", "env", "source", "tags"}
@@ -60,6 +61,8 @@ def translate(node: QueryNode) -> str:
         return f'"{node.text}"'
 
     if isinstance(node, FieldFilter):
+        if node.field == "resource":
+            return ""   # resource routing is handled outside the search query
         field = _dd_field(node.field)
         values = (
             [_dd_status(v) for v in node.values]
@@ -92,7 +95,8 @@ def translate(node: QueryNode) -> str:
 
 def to_search_query(node: QueryNode, service: str) -> str:
     """Return a complete Datadog log search query string."""
-    expr = translate(node)
+    _, stripped = extract_resource(node)
+    expr = translate(stripped)
     parts = [f"service:{service}"]
     if expr:
         parts.append(expr)
