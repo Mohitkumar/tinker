@@ -51,8 +51,10 @@ def create_app() -> FastAPI:
     # ── Routes ────────────────────────────────────────────────────────────────
     from tinker.server.routes.agent import router as agent_router
     from tinker.server.routes.mcp import router as mcp_router
+    from tinker.server.routes.query import router as query_router
 
     app.include_router(agent_router)
+    app.include_router(query_router)
     app.include_router(mcp_router)
 
     # ── Slack bot (mounted as ASGI sub-app) ───────────────────────────────────

@@ -25,6 +25,40 @@ app = typer.Typer(
 console = Console()
 log = structlog.get_logger(__name__)
 
+# Global mode override — set by the --mode option before any command runs
+_mode_override: str | None = None
+
+
+def _mode_callback(value: str | None) -> str | None:
+    global _mode_override
+    if value:
+        _mode_override = value
+    return value
+
+
+@app.callback()
+def _global_options(
+    mode: Optional[str] = typer.Option(
+        None,
+        "--mode",
+        "-m",
+        help="Override mode: [bold]local[/bold] or [bold]server[/bold]",
+        callback=_mode_callback,
+        is_eager=True,
+        show_default=False,
+    ),
+) -> None:
+    """AI-powered observability and incident response agent."""
+
+
+def _get_client():
+    from tinker.client import get_client
+    try:
+        return get_client(mode_override=_mode_override)
+    except RuntimeError as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        raise typer.Exit(1)
+
 SEVERITY_COLORS = {
     "critical": "bold red",
     "high": "red",
@@ -200,74 +234,103 @@ def show_help() -> None:
 # ── Async implementations ─────────────────────────────────────────────────────
 
 async def _doctor() -> None:
-    import httpx
-    from tinker.backends import get_backend, available_backends
     from tinker.config import settings
 
-    console.print(Panel.fit("[bold]Tinker Doctor[/bold]", border_style="cyan"))
+    client = _get_client()
+    console.print(Panel.fit(
+        f"[bold]Tinker Doctor[/bold]  [dim]mode: {client.mode}[/dim]",
+        border_style="cyan",
+    ))
     console.print()
 
     results: list[tuple[str, bool, str]] = []
 
-    # 1. LLM provider
-    try:
-        import litellm
-        resp = litellm.completion(
-            model=settings.default_model,
-            messages=[{"role": "user", "content": "reply with the word OK only"}],
-            max_tokens=5,
-        )
-        text = resp.choices[0].message.content or ""
-        results.append(("LLM", True, f"{settings.default_model} → {text.strip()[:20]}"))
-    except Exception as exc:
-        results.append(("LLM", False, str(exc)[:60]))
-
-    # 2. Observability backend
-    try:
-        from datetime import datetime, timezone, timedelta
-        backend = get_backend()
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(minutes=5)
-        await backend.query_logs("_health_check_", "*", start, end, limit=1)
-        results.append(("Backend", True, settings.tinker_backend))
-    except Exception as exc:
-        # A "no logs found" or auth error still proves connectivity
-        msg = str(exc)[:60]
-        is_auth_err = any(w in msg.lower() for w in ["auth", "credential", "permission", "403", "401"])
-        results.append(("Backend", not is_auth_err, f"{settings.tinker_backend}: {msg}"))
-
-    # 3. Tinker server (if configured)
-    server_url = getattr(settings, "tinker_server_url", None)
-    if server_url:
+    if client.mode == "server":
+        # 1. Server reachability + health
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{server_url}/health", timeout=5)
-                data = resp.json()
-                results.append(("Server", resp.status_code == 200, str(data)))
+            data = await client.health()
+            results.append(("Server", True, f"{data.get('version','')} backend={data.get('backend','')}"))
         except Exception as exc:
-            results.append(("Server", False, str(exc)[:60]))
+            results.append(("Server", False, str(exc)[:80]))
+            _print_doctor_table(results)
+            console.print()
+            console.print(
+                "[red]Cannot reach Tinker server.[/red]\n"
+                "[dim]Run [bold]tinker deploy[/bold] to deploy, or use [bold]--mode local[/bold].[/dim]"
+            )
+            raise typer.Exit(1)
 
-    # 4. Slack
-    if settings.slack_bot_token:
+        # 2. Backend via server
         try:
-            from slack_sdk.web.async_client import AsyncWebClient
-            sc = AsyncWebClient(token=settings.slack_bot_token.get_secret_value())
-            await sc.auth_test()
-            results.append(("Slack", True, "auth_test passed"))
+            from datetime import timezone, timedelta
+            from datetime import datetime as dt
+            end = dt.now(timezone.utc)
+            start = end - timedelta(minutes=5)
+            await client.query_logs("_health_check_", "*", start, end, limit=1)
+            results.append(("Backend", True, "query ok"))
         except Exception as exc:
-            results.append(("Slack", False, str(exc)[:60]))
+            msg = str(exc)[:60]
+            is_ok = not any(w in msg.lower() for w in ["auth", "credential", "403", "401"])
+            results.append(("Backend", is_ok, msg))
 
-    # 5. GitHub
-    if settings.github_token:
+    else:
+        # 1. LLM provider (local mode — client machine needs the key)
         try:
-            from github import Github
-            gh = Github(settings.github_token.get_secret_value())
-            gh.get_user().login
-            results.append(("GitHub", True, "authenticated"))
+            import litellm
+            from tinker.client.local import LocalClient
+            assert isinstance(client, LocalClient)
+            model = client._cfg.default_model
+            resp = litellm.completion(
+                model=model,
+                messages=[{"role": "user", "content": "reply with the word OK only"}],
+                max_tokens=5,
+            )
+            text = resp.choices[0].message.content or ""
+            results.append(("LLM", True, f"{model} → {text.strip()[:20]}"))
         except Exception as exc:
-            results.append(("GitHub", False, str(exc)[:60]))
+            results.append(("LLM", False, str(exc)[:60]))
 
-    # Print results
+        # 2. Observability backend
+        try:
+            from datetime import timezone, timedelta
+            from datetime import datetime as dt
+            end = dt.now(timezone.utc)
+            start = end - timedelta(minutes=5)
+            await client.query_logs("_health_check_", "*", start, end, limit=1)
+            from tinker.client.local import LocalClient
+            assert isinstance(client, LocalClient)
+            results.append(("Backend", True, client._cfg.backend))
+        except Exception as exc:
+            msg = str(exc)[:60]
+            is_ok = not any(w in msg.lower() for w in ["auth", "credential", "permission", "403", "401"])
+            from tinker.client.local import LocalClient
+            assert isinstance(client, LocalClient)
+            results.append(("Backend", is_ok, f"{client._cfg.backend}: {msg}"))
+
+    # Slack + GitHub checks are server-side concerns; only check in local mode
+    if client.mode == "local":
+        if settings.slack_bot_token:
+            try:
+                from slack_sdk.web.async_client import AsyncWebClient
+                sc = AsyncWebClient(token=settings.slack_bot_token.get_secret_value())
+                await sc.auth_test()
+                results.append(("Slack", True, "auth_test passed"))
+            except Exception as exc:
+                results.append(("Slack", False, str(exc)[:60]))
+
+        if settings.github_token:
+            try:
+                from github import Github
+                gh = Github(settings.github_token.get_secret_value())
+                gh.get_user().login
+                results.append(("GitHub", True, "authenticated"))
+            except Exception as exc:
+                results.append(("GitHub", False, str(exc)[:60]))
+
+    _print_doctor_table(results)
+
+
+def _print_doctor_table(results: list[tuple[str, bool, str]]) -> None:
     table = Table(show_header=True, header_style="bold")
     table.add_column("Check", width=12)
     table.add_column("Status", width=8)
@@ -288,27 +351,28 @@ async def _doctor() -> None:
         console.print("[red]Some checks failed. Review the details above.[/red]")
         raise typer.Exit(1)
 
+# end _print_doctor_table
+
 
 async def _analyze(service: str, since: str, deep: bool, verbose: bool) -> None:
-    from tinker.agent.orchestrator import AgentSession, Orchestrator
-
-    orch = Orchestrator(use_deep_rca=deep)
-    session = AgentSession(service=service)
+    client = _get_client()
 
     console.print(Panel(
         f"[bold]Analyzing[/bold] [cyan]{service}[/cyan] · last {since}"
-        + (" · [yellow]deep mode[/yellow]" if deep else ""),
+        + (" · [yellow]deep mode[/yellow]" if deep else "")
+        + f"  [dim]({client.mode} mode)[/dim]",
         expand=False,
     ))
 
     if verbose:
         console.print("[dim]Streaming agent reasoning...[/dim]\n")
-        async for chunk in orch.stream_analyze(service, since, session):
-            console.print(chunk, end="")
+        async for chunk in await client.stream_analyze(service, since, deep):
+            if isinstance(chunk, str):
+                console.print(chunk, end="")
         console.print()
     else:
         with console.status(f"[bold green]Running RCA on {service}...[/bold green]"):
-            report = await orch.analyze(service, since, session)
+            report = await client.analyze(service, since, deep)
         _print_report(report)
 
 
@@ -328,15 +392,12 @@ async def _fix(incident_id: str, approve: bool) -> None:
 
 
 async def _logs(service: str, query: str, since: str, limit: int) -> None:
-    from datetime import datetime, timezone
-    from tinker.backends import get_backend
-
-    backend = get_backend()
-    end = datetime.now(timezone.utc)
-    start = backend._parse_since(since)
+    client = _get_client()
+    end = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    start = client.parse_since(since)
 
     with console.status("Querying..."):
-        entries = await backend.query_logs(service, query, start, end, limit)
+        entries = await client.query_logs(service, query, start, end, limit)
 
     if not entries:
         console.print("[dim]No log entries found.[/dim]")
@@ -359,21 +420,18 @@ async def _logs(service: str, query: str, since: str, limit: int) -> None:
 
 
 async def _tail(service: str, query: str, poll: float) -> None:
-    from tinker.backends import get_backend
-
-    backend = get_backend()
-
+    client = _get_client()
     level_styles = {"ERROR": "red", "CRITICAL": "bold red", "WARN": "yellow", "WARNING": "yellow", "INFO": "green", "DEBUG": "dim"}
 
     console.print(
         f"[bold green]Tailing[/bold green] [cyan]{service}[/cyan]"
         + (f" · [dim]{query}[/dim]" if query != "*" else "")
-        + "  [dim](Ctrl-C to stop)[/dim]"
+        + f"  [dim]({client.mode} mode · Ctrl-C to stop)[/dim]"
     )
     console.print()
 
     try:
-        async for entry in backend.tail_logs(service, query, poll_interval=poll):
+        async for entry in await client.tail_logs(service, query, poll_interval=poll):
             style = level_styles.get(entry.level.upper(), "white")
             ts = entry.timestamp.strftime("%H:%M:%S")
             level = f"[{style}]{entry.level:<8}[/{style}]"
@@ -383,15 +441,12 @@ async def _tail(service: str, query: str, poll: float) -> None:
 
 
 async def _metrics(service: str, metric: str, since: str) -> None:
-    from datetime import datetime, timezone
-    from tinker.backends import get_backend
-
-    backend = get_backend()
-    end = datetime.now(timezone.utc)
-    start = backend._parse_since(since)
+    client = _get_client()
+    end = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    start = client.parse_since(since)
 
     with console.status("Querying..."):
-        points = await backend.get_metrics(service, metric, start, end)
+        points = await client.get_metrics(service, metric, start, end)
 
     if not points:
         console.print("[dim]No metric data found.[/dim]")
@@ -407,11 +462,8 @@ async def _metrics(service: str, metric: str, since: str) -> None:
 
 
 async def _monitor(services: list[str], interval: int) -> None:
-    from tinker.backends import get_backend
-    from tinker.monitor.loop import MonitoringLoop
-
-    backend = get_backend()
-    loop = MonitoringLoop(backend=backend, services=services, poll_interval=interval)
+    import asyncio
+    client = _get_client()
 
     async def print_anomaly(anomaly: object) -> None:
         from tinker.backends.base import Anomaly
@@ -424,15 +476,36 @@ async def _monitor(services: list[str], interval: int) -> None:
             border_style=color,
         ))
 
-    loop.add_alert_handler(print_anomaly)
-    console.print(
-        f"[bold green]Monitoring[/bold green] {', '.join(services)} "
-        f"every {interval}s. Press Ctrl+C to stop.\n"
-    )
-    try:
-        await loop.run()
-    except KeyboardInterrupt:
-        await loop.stop()
+    if client.mode == "local":
+        # Use the full monitoring loop (handles stateful alerting, cooldowns)
+        from tinker.monitor.loop import MonitoringLoop
+        from tinker.client.local import LocalClient
+        assert isinstance(client, LocalClient)
+        loop = MonitoringLoop(backend=client.backend(), services=services, poll_interval=interval)
+        loop.add_alert_handler(print_anomaly)
+        console.print(
+            f"[bold green]Monitoring[/bold green] {', '.join(services)} "
+            f"every {interval}s [dim](local mode)[/dim]. Press Ctrl+C to stop.\n"
+        )
+        try:
+            await loop.run()
+        except KeyboardInterrupt:
+            await loop.stop()
+    else:
+        # Server mode: poll detect_anomalies on the server
+        console.print(
+            f"[bold green]Monitoring[/bold green] {', '.join(services)} "
+            f"every {interval}s [dim](server mode)[/dim]. Press Ctrl+C to stop.\n"
+        )
+        try:
+            while True:
+                for svc in services:
+                    anomalies = await client.detect_anomalies(svc, window_minutes=interval // 60 or 1)
+                    for a in anomalies:
+                        await print_anomaly(a)
+                await asyncio.sleep(interval)
+        except KeyboardInterrupt:
+            pass
 
 
 # ── Help content ──────────────────────────────────────────────────────────────
