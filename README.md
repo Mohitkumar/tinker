@@ -80,15 +80,10 @@ tinker init cli
 # Tinker server URL [http://localhost:8000]: https://tinker.acme.internal
 # API token: <paste key from step 1>
 # ✓ Connected: Tinker v0.1.0  backend=cloudwatch
-# Writes: ~/.tinker/config
+# ✓ Saved: ~/.tinker/config   (URL + token stored here)
 
 # 4. Verify
 tinker doctor
-```
-
-Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
-```bash
-export TINKER_API_TOKEN=<your-token>
 ```
 
 ---
@@ -454,11 +449,11 @@ The bot posts proactive alerts from `tinker watch` tasks. Requires `SLACK_BOT_TO
 
 | File / Variable | Description |
 |---|---|
-| `~/.tinker/config` | Server URL — written by `tinker init cli` |
+| `~/.tinker/config` | Server URL + API token — written by `tinker init cli` |
 | `~/.tinker/.env` | Server config — written by `tinker init server`, auto-loaded by `tinker server` |
 | `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state |
 | `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinker/config`) |
-| `TINKER_API_TOKEN` | API token — add to shell profile |
+| `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinker/config`) |
 
 ### Per-backend
 

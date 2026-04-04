@@ -28,48 +28,57 @@ class ServerConfig:
 
     @property
     def api_key(self) -> str:
-        key = os.environ.get(self.api_key_env, "")
+        # Env var takes priority over stored config (allows per-session override)
+        key = os.environ.get(self.api_key_env, "") or _read_config().get("token", "")
         if not key:
             raise RuntimeError(
-                f"Tinker API token not set.\n"
-                f"Export {self.api_key_env}=<your-token> or run: tinker init cli"
+                "Tinker API token not set.\n"
+                "Run: tinker init cli"
             )
         return key
 
 
 def resolve(url_override: str | None = None) -> ServerConfig:
     """Return the effective server config."""
+    cfg = _read_config()
     url = (
         url_override
         or os.environ.get("TINKER_SERVER_URL", "")
-        or _read_config_url()
+        or cfg.get("url", "")
         or "http://localhost:8000"
     )
     return ServerConfig(url=url.rstrip("/"))
-
-
-def _read_config_url() -> str:
-    path = _config_path()
-    if not path.exists():
-        return ""
-    try:
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore[no-reuse-def]
-        data = tomllib.loads(path.read_text())
-        return data.get("url", "")
-    except Exception:
-        return ""
 
 
 def _config_path() -> Path:
     return Path.home() / ".tinker" / "config"
 
 
-def write_config(url: str) -> Path:
-    """Write the server URL to ~/.tinker/config."""
+def _read_config() -> dict:
+    path = _config_path()
+    if not path.exists():
+        return {}
+    try:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-reuse-def]
+        return tomllib.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def write_config(url: str, token: str | None = None) -> Path:
+    """Write server URL (and optionally token) to ~/.tinker/config."""
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'url = "{url}"\n')
+
+    # Preserve any existing keys we're not updating
+    existing = _read_config()
+    existing["url"] = url
+    if token:
+        existing["token"] = token
+
+    lines = [f'{k} = "{v}"' for k, v in existing.items()]
+    path.write_text("\n".join(lines) + "\n")
     return path

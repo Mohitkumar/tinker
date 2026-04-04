@@ -460,22 +460,13 @@ class CLIWizard:
 
         # ── Write ~/.tinker/config ────────────────────────────────────────────
         from tinker.client.config import write_config
-        config_path = write_config(url)
+        config_path = write_config(url, token=token or None)
         console.print(f"[green]✓ Saved:[/green] {config_path}")
-
-        # ── Token hint ────────────────────────────────────────────────────────
-        if token:
-            console.print()
-            console.print(Panel(
-                f"Add to your shell profile ([dim]~/.zshrc[/dim] or [dim]~/.bashrc[/dim]):\n\n"
-                f"  [bold]export TINKER_API_TOKEN={token}[/bold]\n\n"
-                "[dim]The token is a secret — don't commit it to source control.[/dim]",
-                border_style="yellow",
-            ))
 
         console.print()
         console.print(Panel(
             "[bold]All set![/bold]\n\n"
+            f"Config saved to [dim]{config_path}[/dim]\n\n"
             "Try it:\n\n"
             "  [bold cyan]tinker doctor[/bold cyan]\n"
             "  [bold cyan]tinker anomaly <your-service>[/bold cyan]",
