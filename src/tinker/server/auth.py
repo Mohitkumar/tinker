@@ -56,21 +56,22 @@ class AuthContext:
 # ── API key validation ────────────────────────────────────────────────────────
 
 def _load_api_keys() -> dict[str, dict]:
-    """Load API keys from env.
+    """Load API keys from config.
 
-    TINKER_API_KEYS format (JSON in env var):
+    TINKER_API_KEYS format (JSON):
     [
       {"hash": "<sha256-hex>", "subject": "cli-mohit", "roles": ["sre"]},
       {"hash": "<sha256-hex>", "subject": "slack-bot", "roles": ["oncall"]}
     ]
     """
     import json
-    raw = os.environ.get("TINKER_API_KEYS", "[]")
+    from tinker.config import settings
+    raw = settings.tinker_api_keys  # reads from ~/.tinker/.env via pydantic-settings
     try:
         entries = json.loads(raw)
         return {entry["hash"]: entry for entry in entries}
     except Exception:
-        log.warning("auth.api_keys_parse_failed")
+        log.warning("auth.api_keys_parse_failed", raw=raw[:80])
         return {}
 
 

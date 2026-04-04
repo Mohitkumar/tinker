@@ -43,11 +43,39 @@ LLM_CHOICES = [
     ("Groq — fast open-source models",   "groq",       "GROQ_API_KEY"),
 ]
 
-LLM_MODELS = {
-    "anthropic":  ("anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4-6"),
-    "openrouter": ("openrouter/anthropic/claude-sonnet-4-6", "openrouter/anthropic/claude-opus-4-6"),
-    "openai":     ("openai/gpt-4o", "openai/gpt-4o"),
-    "groq":       ("groq/llama-3.1-70b-versatile", "groq/llama-3.1-70b-versatile"),
+# (label, model_id)  — first entry is the default
+LLM_MODEL_CHOICES: dict[str, list[tuple[str, str]]] = {
+    "anthropic": [
+        ("claude-sonnet-4-6  (recommended — fast + smart)", "anthropic/claude-sonnet-4-6"),
+        ("claude-opus-4-6    (most capable, slower)",       "anthropic/claude-opus-4-6"),
+        ("claude-haiku-4-5   (cheapest, fastest)",          "anthropic/claude-haiku-4-5-20251001"),
+    ],
+    "openrouter": [
+        ("claude-sonnet-4-6  (recommended)", "openrouter/anthropic/claude-sonnet-4-6"),
+        ("claude-opus-4-6",                  "openrouter/anthropic/claude-opus-4-6"),
+        ("gpt-4o",                           "openrouter/openai/gpt-4o"),
+        ("gpt-4o-mini        (cheaper)",     "openrouter/openai/gpt-4o-mini"),
+        ("llama-3.1-70b      (free tier)",   "openrouter/meta-llama/llama-3.1-70b-instruct"),
+        ("gemini-pro-1.5",                   "openrouter/google/gemini-pro-1.5"),
+    ],
+    "openai": [
+        ("gpt-4o             (recommended)", "openai/gpt-4o"),
+        ("gpt-4o-mini        (cheaper)",     "openai/gpt-4o-mini"),
+        ("o1-preview         (reasoning)",   "openai/o1-preview"),
+    ],
+    "groq": [
+        ("llama-3.1-70b-versatile  (recommended)", "groq/llama-3.1-70b-versatile"),
+        ("llama-3.1-8b-instant     (fastest)",     "groq/llama-3.1-8b-instant"),
+        ("mixtral-8x7b-32768",                     "groq/mixtral-8x7b-32768"),
+    ],
+}
+
+# Deep RCA model defaults per provider (used when --deep flag is set)
+_DEEP_MODEL_DEFAULTS: dict[str, str] = {
+    "anthropic":  "anthropic/claude-opus-4-6",
+    "openrouter": "openrouter/anthropic/claude-opus-4-6",
+    "openai":     "openai/o1-preview",
+    "groq":       "groq/llama-3.1-70b-versatile",
 }
 
 # ── IAM permission guides ─────────────────────────────────────────────────────
@@ -265,7 +293,9 @@ class ServerWizard:
 
     def _step_llm(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 2 — LLM Provider[/bold]"))
+        console.print(Rule("[bold]Step 2 — LLM Provider & Model[/bold]"))
+
+        # ── Provider ──────────────────────────────────────────────────────────
         console.print()
         for i, (label, _, _) in enumerate(LLM_CHOICES, 1):
             console.print(f"  [{i}] {label}")
@@ -284,11 +314,48 @@ class ServerWizard:
         if api_key:
             self._env[key_name] = api_key
 
-        default_model, deep_model = LLM_MODELS.get(provider, ("anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4-6"))
+        # ── Model selection ───────────────────────────────────────────────────
+        models = LLM_MODEL_CHOICES.get(provider, [])
+        console.print()
+        console.print("[dim]Select default model (used for triage and anomaly explain):[/dim]")
+        for i, (mlabel, _) in enumerate(models, 1):
+            console.print(f"  [{i}] {mlabel}")
+        console.print()
+
+        while True:
+            raw = input("Select model [1]: ").strip() or "1"
+            try:
+                midx = int(raw) - 1
+                _, default_model = models[midx]
+                break
+            except (ValueError, IndexError):
+                console.print("[red]Invalid choice.[/red]")
+
+        # Deep RCA model — default to opus/most capable, let user override
+        deep_default = _DEEP_MODEL_DEFAULTS.get(provider, default_model)
+        console.print()
+        console.print(f"[dim]Deep RCA model (used with --deep flag, defaults to most capable):[/dim]")
+        for i, (mlabel, _) in enumerate(models, 1):
+            marker = " ← default" if models[i - 1][1] == deep_default else ""
+            console.print(f"  [{i}] {mlabel}{marker}")
+        console.print()
+
+        while True:
+            deep_default_idx = next(
+                (i for i, (_, mid) in enumerate(models, 1) if mid == deep_default), 1
+            )
+            raw = input(f"Select deep RCA model [{deep_default_idx}]: ").strip() or str(deep_default_idx)
+            try:
+                didx = int(raw) - 1
+                _, deep_model = models[didx]
+                break
+            except (ValueError, IndexError):
+                console.print("[red]Invalid choice.[/red]")
+
         self._env["TINKER_DEFAULT_MODEL"] = default_model
         self._env["TINKER_DEEP_RCA_MODEL"] = deep_model
-        console.print(f"[dim]Default model: {default_model}[/dim]")
-        console.print(f"[dim]Deep RCA model: {deep_model}[/dim]")
+        console.print(f"[green]✓[/green] Default model:  [dim]{default_model}[/dim]")
+        console.print(f"[green]✓[/green] Deep RCA model: [dim]{deep_model}[/dim]")
 
     def _step_slack(self) -> None:
         console.print()
@@ -364,7 +431,10 @@ class ServerWizard:
             "",
         ]
         for k, v in self._env.items():
-            if " " in v or "[" in v:
+            if '"' in v:
+                # JSON values contain double quotes — wrap in single quotes
+                lines.append(f"{k}='{v}'")
+            elif " " in v or "[" in v:
                 lines.append(f'{k}="{v}"')
             else:
                 lines.append(f"{k}={v}")
@@ -536,5 +606,5 @@ def _ask_yes_no(question: str, default: bool = True) -> bool:
 
 
 def _read_current_url() -> str:
-    from tinker.client.config import _read_config_url
-    return os.environ.get("TINKER_SERVER_URL", "") or _read_config_url()
+    from tinker.client.config import _read_config
+    return os.environ.get("TINKER_SERVER_URL", "") or _read_config().get("url", "")
