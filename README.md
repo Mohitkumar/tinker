@@ -234,88 +234,85 @@ Claude can then call `query_logs`, `get_metrics`, `detect_anomalies`, `search_co
 
 ## Deployment
 
-### Automated — `tinker deploy`
+The Tinker server is deployed using **your team's existing infrastructure tooling** — Helm, Terraform, or Docker Compose. There is no `tinker deploy` command: the CLI is a developer/SRE tool, not an infrastructure provisioner.
 
-After running `tinker init`, deploy with one command:
+`tinker init` (deploy mode) guides you through config and generates ready-to-use values files. The actual deployment is yours to run and review like any other infra change.
 
-```bash
-tinker deploy
-```
-
-This reads `tinker.toml` and handles the full flow for your cloud:
-
-| Cloud | What `tinker deploy` does |
-|---|---|
-| **AWS ECS** | Creates ECR repo → builds + pushes image → registers ECS task definition → creates/updates ECS service |
-| **GCP Cloud Run** | Cloud Build or local Docker → Artifact Registry → `gcloud run services replace` |
-| **Azure Container Apps** | `az acr build` → `az containerapp create` |
-| **Self-hosted** | `docker compose up --build -d` |
-
-### Manual deployment
-
-<details>
-<summary>AWS ECS Fargate</summary>
+### Helm (Kubernetes — EKS / GKE / AKS)
 
 ```bash
-# 1. Create the read-only IAM role
-aws iam create-role --role-name tinker-readonly \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-aws iam put-role-policy --role-name tinker-readonly \
-  --policy-name TinkerReadOnly \
-  --policy-document file://deploy/aws/iam-policy.json
+# 1. Generate values from the wizard
+tinker init   # choose "Deploy" → "Helm on EKS/GKE/AKS"
+# → writes tinker-values.yaml
 
-# 2. Store secrets in Secrets Manager
-aws secretsmanager create-secret --name tinker/anthropic-api-key --secret-string "sk-ant-..."
+# 2. Store secrets in your secrets manager (see guidance printed by init)
+#    Then create the Kubernetes secret:
+kubectl create secret generic tinker-secrets \
+  --from-literal=anthropic-api-key=sk-ant-... \
+  --from-literal=api-keys='[{"hash":"...","subject":"default","roles":["sre"]}]'
 
-# 3. Build, push, deploy
-aws ecr create-repository --repository-name tinker
-docker build -f deploy/Dockerfile -t <ecr-url>/tinker:latest .
-docker push <ecr-url>/tinker:latest
-aws ecs register-task-definition --cli-input-json file://deploy/aws/task-definition.json
+# 3. Install
+helm install tinker ./deploy/helm/tinker -f tinker-values.yaml
+
+# 4. Get the cluster-internal URL and add to tinker.toml [server] url
+kubectl get svc tinker
 ```
 
-See [deploy/aws/task-definition.json](deploy/aws/task-definition.json) — the task role and Secrets Manager wiring are already configured.
-</details>
+For IRSA (EKS), Workload Identity (GKE), or Azure Workload Identity (AKS), add the cloud identity annotation to `serviceAccount.annotations` in your values file — examples are in [deploy/helm/tinker/values.yaml](deploy/helm/tinker/values.yaml).
 
-<details>
-<summary>GCP Cloud Run</summary>
+### Terraform
+
+Modules for each cloud are in [`deploy/terraform/`](deploy/terraform/):
 
 ```bash
-# 1. Create service account
-gcloud iam service-accounts create tinker-readonly
-gcloud projects add-iam-policy-binding PROJECT_ID \
-  --member="serviceAccount:tinker-readonly@PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/logging.viewer"
-gcloud projects add-iam-policy-binding PROJECT_ID \
-  --member="serviceAccount:tinker-readonly@PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/monitoring.viewer"
+# Generate tfvars from the wizard
+tinker init   # choose "Deploy" → "Terraform — ECS Fargate / Cloud Run / Container Apps"
+# → writes tinker.tfvars
 
-# 2. Store secrets
-echo -n "sk-ant-..." | gcloud secrets create tinker-anthropic-api-key --data-file=-
+# AWS ECS Fargate
+cd deploy/terraform/aws
+terraform init
+terraform apply -var-file=../../../tinker.tfvars
 
-# 3. Deploy
-gcloud run services replace deploy/gcp/cloudrun.yaml
+# GCP Cloud Run
+cd deploy/terraform/gcp
+terraform init
+terraform apply -var-file=../../../tinker.tfvars
+
+# Azure Container Apps
+cd deploy/terraform/azure
+terraform init
+terraform apply -var-file=../../../tinker.tfvars
 ```
 
-See [deploy/gcp/cloudrun.yaml](deploy/gcp/cloudrun.yaml).
-</details>
+Each module outputs the server URL (`terraform output service_url`) — add it to `tinker.toml`:
+```toml
+[server]
+url = "https://..."
+```
 
-<details>
-<summary>Azure Container Apps</summary>
+### Docker Compose (self-hosted)
 
 ```bash
-# 1. Deploy (managed identity created automatically)
-az containerapp create --yaml deploy/azure/container-app.yaml
+tinker init   # choose "Deploy" → "Docker Compose"
+# → writes tinker-server.env
 
-# 2. Assign roles to the managed identity
-az role assignment create --assignee <principal-id> \
-  --role "Monitoring Reader" --scope /subscriptions/SUBSCRIPTION_ID
-az role assignment create --assignee <principal-id> \
-  --role "Log Analytics Reader" --scope /subscriptions/SUBSCRIPTION_ID
+cp tinker-server.env deploy/.env
+docker compose -f deploy/docker-compose.yml up -d
 ```
 
-See [deploy/azure/container-app.yaml](deploy/azure/container-app.yaml).
-</details>
+### Secrets
+
+Tinker never bakes secrets into the image. All sensitive values go into your cloud's native secrets manager:
+
+| Cloud | Service | Secret names |
+|---|---|---|
+| AWS | Secrets Manager | `tinker/anthropic-api-key`, `tinker/api-keys`, `tinker/slack-bot-token`, `tinker/github-token` |
+| GCP | Secret Manager | `tinker-anthropic-api-key`, `tinker-api-keys`, `tinker-slack-bot-token`, `tinker-github-token` |
+| Azure | Key Vault (`tinker-vault`) | `anthropic-api-key`, `tinker-api-keys`, `slack-bot-token`, `github-token` |
+| Self-hosted | `.env` file (not committed) | plain env vars |
+
+`tinker init` prints the exact commands to store each secret for your cloud.
 
 ---
 

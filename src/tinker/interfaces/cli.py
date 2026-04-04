@@ -86,20 +86,6 @@ def init(
 
 
 @app.command()
-def deploy(
-    config_file: str = typer.Option("tinker.toml", "--config", help="Deploy config file"),
-) -> None:
-    """[bold cyan]Deploy the Tinker server to your configured cloud.[/bold cyan]
-
-    Reads cloud and target from tinker.toml (written by [bold]tinker init[/bold]).
-    Builds the Docker image, pushes it, and creates or updates the cloud service.
-    """
-    from pathlib import Path
-    from tinker.interfaces.deploy import DeployEngine
-    DeployEngine.from_toml(Path(config_file)).deploy()
-
-
-@app.command()
 def doctor() -> None:
     """[bold cyan]Verify connectivity to all configured services.[/bold cyan]
 
@@ -256,7 +242,7 @@ async def _doctor() -> None:
             console.print()
             console.print(
                 "[red]Cannot reach Tinker server.[/red]\n"
-                "[dim]Run [bold]tinker deploy[/bold] to deploy, or use [bold]--mode local[/bold].[/dim]"
+                "[dim]See [bold]deploy/helm/[/bold] or [bold]deploy/terraform/[/bold] to deploy, or use [bold]--mode local[/bold].[/dim]"
             )
             raise typer.Exit(1)
 
@@ -520,8 +506,7 @@ def _print_help() -> None:
 
     sections = [
         ("Setup", [
-            ("tinker init",            "Interactive setup wizard — cloud, LLM, keys, deploy"),
-            ("tinker deploy",          "Deploy the server to your configured cloud"),
+            ("tinker init",            "Interactive setup wizard — generates config + deploy values"),
             ("tinker doctor",          "Verify connectivity to all configured services"),
         ]),
         ("Analysis", [
