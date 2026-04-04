@@ -42,6 +42,34 @@ litellm.suppress_debug_info = True
 litellm.set_verbose = False
 
 
+def _sync_llm_keys() -> None:
+    """Push provider API keys from pydantic-settings into os.environ.
+
+    pydantic-settings reads ~/.tinker/.env into the settings object but does NOT
+    inject values into os.environ. LiteLLM reads keys from os.environ, so without
+    this sync the keys are invisible to LiteLLM.
+    """
+    import os
+    from tinker.config import settings
+
+    _KEY_MAP = {
+        "anthropic_api_key":  "ANTHROPIC_API_KEY",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+        "openai_api_key":     "OPENAI_API_KEY",
+        "groq_api_key":       "GROQ_API_KEY",
+        "mistral_api_key":    "MISTRAL_API_KEY",
+    }
+    for attr, env_var in _KEY_MAP.items():
+        secret = getattr(settings, attr, None)
+        if secret and env_var not in os.environ:
+            os.environ[env_var] = (
+                secret.get_secret_value() if hasattr(secret, "get_secret_value") else str(secret)
+            )
+
+
+_sync_llm_keys()
+
+
 def _is_anthropic(model: str) -> bool:
     """True if the model routes to Anthropic (direct or via OpenRouter)."""
     return "claude" in model.lower()
