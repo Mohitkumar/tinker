@@ -29,6 +29,7 @@ class LogsRequest(BaseModel):
     start: datetime
     end: datetime
     limit: int = 100
+    resource_type: str | None = None
 
 
 class MetricsRequest(BaseModel):
@@ -51,7 +52,7 @@ async def query_logs(
     auth: Annotated[AuthContext, Depends(require_auth)],
 ) -> dict[str, Any]:
     backend = get_backend()
-    entries = await backend.query_logs(req.service, req.query, req.start, req.end, req.limit)
+    entries = await backend.query_logs(req.service, req.query, req.start, req.end, req.limit, req.resource_type)
     log.debug("query.logs", service=req.service, count=len(entries), actor=auth.subject)
     return {
         "entries": [

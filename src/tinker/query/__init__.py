@@ -32,6 +32,7 @@ def translate_for(
     node: QueryNode,
     service: str,
     resource_type: str | None = None,
+    service_label: str = "service",
 ) -> Any:
     """Translate a parsed query AST to the native format for *backend*.
 
@@ -53,7 +54,7 @@ def translate_for(
 
         case "grafana" | "loki":
             from tinker.query.translators.loki import translate as loki_translate
-            return loki_translate(node, service, resource_type=resource_type)
+            return loki_translate(node, service, resource_type=resource_type, service_label=service_label)
 
         case "gcp":
             from tinker.query.translators.gcp import to_filter

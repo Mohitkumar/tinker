@@ -59,6 +59,7 @@ class GrafanaBackend(ObservabilityBackend):
         self._loki_url = getattr(settings, "grafana_loki_url", "") or ""
         self._prom_url = getattr(settings, "grafana_prometheus_url", "") or ""
         self._tempo_url = getattr(settings, "grafana_tempo_url", "") or ""
+        self._service_label: str = getattr(settings, "grafana_service_label", "service") or "service"
 
         # Auth: API key takes precedence over basic auth
         api_key = getattr(settings, "grafana_api_key", None)
@@ -102,7 +103,7 @@ class GrafanaBackend(ObservabilityBackend):
         else:
             from tinker.query import parse_query, translate_for
             ast = parse_query(query)
-            logql = translate_for("grafana", ast, service=service, resource_type=resource_type)
+            logql = translate_for("grafana", ast, service=service, resource_type=resource_type, service_label=self._service_label)
 
         params = {
             "query": logql,
@@ -111,6 +112,8 @@ class GrafanaBackend(ObservabilityBackend):
             "limit": str(limit),
             "direction": "backward",
         }
+
+        log.debug("grafana.loki_query", logql=logql, start=start.isoformat(), end=end.isoformat())
 
         async with httpx.AsyncClient(auth=self._auth, headers=self._headers) as client:
             resp = await client.get(
@@ -121,8 +124,11 @@ class GrafanaBackend(ObservabilityBackend):
             resp.raise_for_status()
             data = resp.json()
 
+        result_streams = data.get("data", {}).get("result", [])
+        log.debug("grafana.loki_response", streams=len(result_streams), status=data.get("status"))
+
         entries: list[LogEntry] = []
-        for stream in data.get("data", {}).get("result", []):
+        for stream in result_streams:
             stream_labels: dict[str, str] = stream.get("stream", {})
             svc = stream_labels.get("service") or stream_labels.get("service_name") or stream_labels.get("app") or service
             level = (

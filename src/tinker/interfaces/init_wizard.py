@@ -274,6 +274,13 @@ class ServerWizard:
         if api_key:
             self._env["GRAFANA_API_KEY"] = api_key
 
+        console.print()
+        console.print("[dim]Loki service label — the stream selector label your log shipper sets for the service name.[/dim]")
+        console.print("[dim]Common values: service (Promtail default), app (Helm charts), job, service_name, container[/dim]")
+        svc_label = input("Service label [service]: ").strip() or "service"
+        if svc_label != "service":
+            self._env["GRAFANA_SERVICE_LABEL"] = svc_label
+
     def _configure_datadog(self) -> None:
         api_key = input("Datadog API key: ").strip()
         app_key = input("Datadog App key: ").strip()

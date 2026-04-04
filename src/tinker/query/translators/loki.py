@@ -99,18 +99,23 @@ def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
         _collect(node.operand, acc, not negated)
 
 
-def translate(node: QueryNode, service: str, resource_type: str | None = None) -> str:
+def translate(
+    node: QueryNode,
+    service: str,
+    resource_type: str | None = None,
+    service_label: str = _SERVICE_LABEL,
+) -> str:
     """Return a complete LogQL query string for the given service."""
     acc = _LogQL()
     _collect(node, acc)
 
     # Stream selector — start with service, add resource-specific labels
-    stream: dict[str, str] = {_SERVICE_LABEL: service}
+    stream: dict[str, str] = {service_label: service}
     if resource_type and resource_type.lower() in LOKI_LABELS:
         stream.update(LOKI_LABELS[resource_type.lower()])
     # Promote exact label matches into the stream selector
     for k, v in acc.labels.items():
-        if k in ("service", "service_name"):
+        if k in ("service", "service_name", service_label):
             continue  # service already set above
         stream[k] = v  # type: ignore[assignment]
 

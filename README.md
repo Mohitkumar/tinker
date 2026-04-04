@@ -462,7 +462,7 @@ The bot posts proactive alerts from `tinker watch` tasks. Requires `SLACK_BOT_TO
 | `cloudwatch` | `AWS_REGION` — credentials from IAM role |
 | `gcp` | `GCP_PROJECT_ID` — credentials from Workload Identity |
 | `azure` | `AZURE_WORKSPACE_ID`, `AZURE_SUBSCRIPTION_ID` |
-| `grafana` | `GRAFANA_LOKI_URL`, `GRAFANA_PROMETHEUS_URL` |
+| `grafana` | `GRAFANA_LOKI_URL`, `GRAFANA_PROMETHEUS_URL`, `GRAFANA_SERVICE_LABEL` (default: `service`) |
 | `datadog` | `DATADOG_API_KEY`, `DATADOG_APP_KEY`, `DATADOG_SITE` |
 | `elastic` | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` |
 

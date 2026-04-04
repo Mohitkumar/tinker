@@ -429,7 +429,7 @@ async def _tail(service: str, query: str, poll: float, resource_type: str | None
     )
     console.print()
     try:
-        async for entry in await client.tail_logs(service, query, poll_interval=poll, resource_type=resource_type):
+        async for entry in client.tail_logs(service, query, poll_interval=poll, resource_type=resource_type):
             style = level_styles.get(entry.level.upper(), "white")
             ts = entry.timestamp.strftime("%H:%M:%S")
             level = f"[{style}]{entry.level:<8}[/{style}]"

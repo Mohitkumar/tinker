@@ -88,6 +88,9 @@ class TinkerConfig(BaseSettings):
     grafana_api_key: SecretStr | None = None     # Grafana Cloud API key
     grafana_user: str | None = None              # basic auth user (self-hosted)
     grafana_password: SecretStr | None = None    # basic auth password (self-hosted)
+    # Label key used to identify services in Loki stream selectors.
+    # Common values: service (default), app, job, service_name, container
+    grafana_service_label: str = Field("service", alias="GRAFANA_SERVICE_LABEL")
 
     # ── Datadog ───────────────────────────────────────────────────────────────
     datadog_api_key: SecretStr | None = None
