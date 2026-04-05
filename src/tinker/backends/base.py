@@ -62,6 +62,19 @@ class Anomaly:
         }
 
 
+# ── Exceptions ────────────────────────────────────────────────────────────────
+
+
+class ServiceNotFoundError(Exception):
+    """Raised when a service cannot be found in the observability backend."""
+
+    def __init__(self, service: str, backend: str = "") -> None:
+        self.service = service
+        self.backend = backend
+        where = f" in {backend}" if backend else ""
+        super().__init__(f"Service '{service}' not found{where}")
+
+
 # ── Abstract backend ──────────────────────────────────────────────────────────
 
 

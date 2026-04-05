@@ -39,7 +39,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError
 from tinker.agent.guardrails import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -94,8 +94,7 @@ class GrafanaBackend(ObservabilityBackend):
         Raw LogQL (starting with '{') is passed through unchanged.
         """
         if not self._loki_url:
-            log.warning("grafana.loki_not_configured")
-            return []
+            raise RuntimeError("Loki is not configured (GRAFANA_LOKI_URL is not set)")
 
         if query.startswith("{"):
             # Raw LogQL — pass through unchanged
@@ -127,6 +126,12 @@ class GrafanaBackend(ObservabilityBackend):
         result_streams = data.get("data", {}).get("result", [])
         log.debug("grafana.loki_response", streams=len(result_streams), status=data.get("status"))
 
+        if not result_streams:
+            # Distinguish "no logs in this window" from "service label never seen by Loki"
+            if not await self._loki_service_exists(service):
+                raise ServiceNotFoundError(service, backend="Loki")
+            return []
+
         entries: list[LogEntry] = []
         for stream in result_streams:
             stream_labels: dict[str, str] = stream.get("stream", {})
@@ -148,6 +153,27 @@ class GrafanaBackend(ObservabilityBackend):
                 )
 
         return entries
+
+    async def _loki_service_exists(self, service: str) -> bool:
+        """Check if a service label value exists in Loki.
+
+        Uses the label values API — fast, no log data fetched.
+        Returns True if the service is known to Loki (even if it has no recent logs).
+        """
+        try:
+            async with httpx.AsyncClient(auth=self._auth, headers=self._headers) as client:
+                resp = await client.get(
+                    f"{self._loki_url}/loki/api/v1/label/{self._service_label}/values",
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                values: list[str] = resp.json().get("data", [])
+            return service in values
+        except Exception as exc:
+            # If the label check itself fails, log and assume service may exist
+            # to avoid false 404s when Loki is degraded.
+            log.warning("grafana.loki_label_check_failed", service=service, error=str(exc))
+            return True
 
     # ── Loki native tail (websocket) ──────────────────────────────────────────
 
@@ -239,8 +265,7 @@ class GrafanaBackend(ObservabilityBackend):
     ) -> list[MetricPoint]:
         """Query Prometheus range query API."""
         if not self._prom_url:
-            log.warning("grafana.prometheus_not_configured")
-            return []
+            raise RuntimeError("Prometheus is not configured (GRAFANA_PROMETHEUS_URL is not set)")
 
         labels = {**(dimensions or {}), "job": service}
         label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())

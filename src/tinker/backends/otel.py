@@ -91,8 +91,7 @@ class OTelBackend(ObservabilityBackend):
           @timestamp / time_unix_nano → timestamp
         """
         if not self._os_url:
-            log.warning("otel.opensearch_not_configured")
-            return []
+            raise RuntimeError("OpenSearch is not configured (OPENSEARCH_URL is not set)")
 
         dsl: dict[str, Any] = {
             "size": limit,
@@ -178,8 +177,7 @@ class OTelBackend(ObservabilityBackend):
           - Datadog via datadog-agent prometheus endpoint
         """
         if not self._prom_url:
-            log.warning("otel.prometheus_not_configured")
-            return []
+            raise RuntimeError("Prometheus is not configured (PROMETHEUS_URL is not set)")
 
         # Build PromQL selector
         labels = {**(dimensions or {}), "service_name": service}

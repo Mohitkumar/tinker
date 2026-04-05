@@ -9,7 +9,7 @@ from typing import Any
 import boto3
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError
 from tinker.config import settings
 
 log = structlog.get_logger(__name__)
@@ -70,7 +70,7 @@ class CloudWatchBackend(ObservabilityBackend):
                 log_groups.extend(g["logGroupName"] for g in page.get("logGroups", []))
             if not log_groups:
                 log.warning("cloudwatch.no_log_groups_found", service=service)
-                return []
+                raise ServiceNotFoundError(service, backend="CloudWatch")
 
         log.debug("cloudwatch.query_logs", service=service, log_groups=log_groups)
 
@@ -101,7 +101,7 @@ class CloudWatchBackend(ObservabilityBackend):
 
         if result["status"] != "Complete":
             log.warning("cloudwatch.query_failed", status=result["status"], query_id=query_id)
-            return []
+            raise RuntimeError(f"CloudWatch Logs Insights query {result['status'].lower()} (id={query_id})")
 
         return [self._parse_log_record(r) for r in result.get("results", [])]
 

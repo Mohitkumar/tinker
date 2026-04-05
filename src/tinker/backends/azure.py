@@ -101,7 +101,7 @@ class AzureBackend(ObservabilityBackend):
             )
         except Exception as exc:
             log.error("azure.query_logs.failed", error=str(exc))
-            return []
+            raise
 
         if result.status != LogsQueryStatus.SUCCESS:
             log.warning("azure.query_logs.partial", status=result.status)
@@ -185,7 +185,7 @@ class AzureBackend(ObservabilityBackend):
             )
         except Exception as exc:
             log.error("azure.get_metrics.failed", error=str(exc))
-            return []
+            raise
 
         points: list[MetricPoint] = []
         for metric in result.metrics:
