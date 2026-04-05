@@ -126,6 +126,8 @@ class ServerWizard:
         self.toml_file = Path.home() / ".tinker" / "config.toml"
         self._env: dict[str, str] = {}       # secrets → written to .env
         self._toml: dict[str, object] = {}   # structure → written to config.toml
+        self._slack_configured = False       # set by _step_slack for _step_notifiers
+        self._slack_channel = "#incidents"   # carries the channel picked in _step_slack
 
     def run(self) -> None:
         console.print(Panel.fit(
@@ -140,6 +142,7 @@ class ServerWizard:
             self._step_cloud()
             self._step_llm()
             self._step_slack()
+            self._step_notifiers()
             self._step_github()
             self._step_api_key()
             self._step_services()
@@ -425,6 +428,8 @@ class ServerWizard:
             "bot_token": "env:SLACK_BOT_TOKEN",
             "alerts_channel": channel,
         }
+        self._slack_configured = True
+        self._slack_channel = channel
 
         # Test it
         console.print("[dim]Testing Slack connection...[/dim]")
@@ -437,9 +442,115 @@ class ServerWizard:
         except Exception as exc:
             console.print(f"[yellow]! Slack test failed: {str(exc)[:60]}[/yellow]")
 
+    def _step_notifiers(self) -> None:
+        console.print()
+        console.print(Rule("[bold]Step 4 — Alert Notifiers[/bold]"))
+        console.print()
+        console.print(
+            "[dim]Notifiers deliver watch alerts (from [bold]tinker watch start[/bold]) "
+            "to Slack, Discord, or custom webhooks.\n"
+            "Each notifier is named and referenced when creating a watch.\n"
+            "Configure multiple to route different services to different channels.[/dim]"
+        )
+        console.print()
+
+        notifiers: dict[str, dict] = {}
+
+        # Auto-create default Slack notifier from _step_slack if configured
+        if self._slack_configured:
+            notifiers["default"] = {
+                "type": "slack",
+                "bot_token": "env:SLACK_BOT_TOKEN",
+                "channel": self._slack_channel,
+            }
+            console.print(
+                f"[green]✓[/green] Default notifier: [bold]Slack[/bold] → [dim]{self._slack_channel}[/dim] "
+                "(from Step 3)"
+            )
+        else:
+            console.print("[dim]No Slack configured — you can add a notifier manually here.[/dim]")
+
+        if not _ask_yes_no("Add more notifiers?", default=False):
+            if notifiers:
+                self._toml["notifiers"] = notifiers
+            return
+
+        NOTIFIER_TYPES = [
+            ("Slack channel",          "slack"),
+            ("Discord webhook",        "discord"),
+            ("Generic HTTP webhook",   "webhook"),
+        ]
+
+        while True:
+            console.print()
+            console.print("  Notifier types:")
+            for i, (label, _) in enumerate(NOTIFIER_TYPES, 1):
+                console.print(f"    [{i}] {label}")
+            console.print()
+
+            raw = input("  Select type (or Enter to finish): ").strip()
+            if not raw:
+                break
+            try:
+                ntype_label, ntype = NOTIFIER_TYPES[int(raw) - 1]
+            except (ValueError, IndexError):
+                console.print("  [red]Invalid choice.[/red]")
+                continue
+
+            name = input("  Notifier name (e.g. discord-ops, pagerduty): ").strip()
+            if not name:
+                console.print("  [yellow]! Name required — skipping.[/yellow]")
+                continue
+            if name in notifiers:
+                console.print(f"  [yellow]! '{name}' already exists — skipping.[/yellow]")
+                continue
+
+            if ntype == "slack":
+                token = input("  Slack bot token (xoxb-...) [reuse SLACK_BOT_TOKEN]: ").strip()
+                channel = input("  Channel [#incidents]: ").strip() or "#incidents"
+                entry: dict[str, str] = {"type": "slack", "channel": channel}
+                if token:
+                    env_var = f"SLACK_BOT_TOKEN_{name.upper().replace('-', '_')}"
+                    self._env[env_var] = token
+                    entry["bot_token"] = f"env:{env_var}"
+                else:
+                    entry["bot_token"] = "env:SLACK_BOT_TOKEN"
+                notifiers[name] = entry
+
+            elif ntype == "discord":
+                webhook_url = input("  Discord webhook URL: ").strip()
+                if not webhook_url:
+                    console.print("  [yellow]! URL required — skipping.[/yellow]")
+                    continue
+                env_var = f"DISCORD_WEBHOOK_{name.upper().replace('-', '_')}"
+                self._env[env_var] = webhook_url
+                notifiers[name] = {"type": "discord", "webhook_url": f"env:{env_var}"}
+
+            elif ntype == "webhook":
+                url = input("  Webhook URL: ").strip()
+                if not url:
+                    console.print("  [yellow]! URL required — skipping.[/yellow]")
+                    continue
+                env_var = f"WEBHOOK_{name.upper().replace('-', '_')}_URL"
+                self._env[env_var] = url
+                entry = {"type": "webhook", "url": f"env:{env_var}"}
+                auth_header = input("  Authorization header value (leave blank if none): ").strip()
+                if auth_header:
+                    auth_var = f"WEBHOOK_{name.upper().replace('-', '_')}_AUTH"
+                    self._env[auth_var] = auth_header
+                    entry["header_Authorization"] = f"env:{auth_var}"
+                notifiers[name] = entry
+
+            console.print(f"  [green]✓[/green] Added notifier: [bold]{name}[/bold] ({ntype_label})")
+
+        if notifiers:
+            self._toml["notifiers"] = notifiers
+            console.print()
+            console.print(f"[green]✓[/green] {len(notifiers)} notifier(s) configured: {', '.join(notifiers)}")
+
     def _step_github(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 4 — GitHub (for code investigation and auto-PRs)[/bold]"))
+        console.print(Rule("[bold]Step 5 — GitHub (for code investigation and auto-PRs)[/bold]"))
         console.print()
         console.print(
             "[dim]Tinker uses GitHub to read code (stack trace files, search, commits)\n"
@@ -500,7 +611,7 @@ class ServerWizard:
 
     def _step_api_key(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 5 — Server API Key[/bold]"))
+        console.print(Rule("[bold]Step 6 — Server API Key[/bold]"))
         console.print()
         console.print(
             "The CLI authenticates to this server with an API key.\n"
@@ -527,7 +638,7 @@ class ServerWizard:
 
     def _step_services(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 6 — Per-service config (optional)[/bold]"))
+        console.print(Rule("[bold]Step 7 — Per-service config (optional)[/bold]"))
         console.print()
         console.print(
             "[dim]Configure per-service log format so Tinker can query level correctly\n"
@@ -650,6 +761,13 @@ class ServerWizard:
         for name, backend in (self._toml.get("backends") or {}).items():  # type: ignore[union-attr]
             lines.append(f"[backends.{name}]")
             for k, v in backend.items():  # type: ignore[union-attr]
+                lines.append(f"{k} = {_val(v)}")
+            lines.append("")
+
+        # [notifiers.*]
+        for name, notifier in (self._toml.get("notifiers") or {}).items():  # type: ignore[union-attr]
+            lines.append(f"[notifiers.{name}]")
+            for k, v in notifier.items():  # type: ignore[union-attr]
                 lines.append(f"{k} = {_val(v)}")
             lines.append("")
 

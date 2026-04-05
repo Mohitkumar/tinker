@@ -62,9 +62,8 @@ Requires Python 3.12+.
 ```bash
 # 1. Run the setup wizard
 tinker init server
-#   Auto-detects cloud (AWS/GCP/Azure), checks IAM permissions,
-#   optionally configures Slack, generates API key.
-#   Writes: ~/.tinker/.env
+#   Auto-detects cloud, checks IAM permissions, configures Slack/notifiers,
+#   generates API key. Writes: ~/.tinker/config.toml + ~/.tinker/.env
 
 # 2. Start the server (picks up ~/.tinker/.env automatically)
 tinker server
@@ -183,12 +182,16 @@ Example: 1000 raw error logs → 2 unique patterns + 1 stack trace → 1084-char
 
 ### Background watches — `tinker watch`
 
-Watches run as asyncio tasks inside the server process. The server polls for anomalies on a schedule and posts to Slack when the anomaly set changes.
+Watches run as asyncio tasks inside the server process. The server polls for anomalies on a schedule and dispatches alerts via the configured notifier when the anomaly set changes.
 
 ```bash
-# Start a watch (server-side)
-tinker watch start payments-api --channel "#incidents"
+# Start a watch — uses the "default" notifier from config.toml
+tinker watch start payments-api
 tinker watch start payments-api --interval 120
+
+# Route alerts to a specific notifier defined in [notifiers.*]
+tinker watch start payments-api --notifier discord-ops
+tinker watch start payments-api --notifier slack-main --destination "#payments-oncall"
 
 # List all watches on the server
 tinker watch list
@@ -199,19 +202,19 @@ tinker watch stop watch-abc123
 
 ```
  Server Watches
- ID               Service          Status    Channel      Interval   Last Run
- watch-a3f2b1c4   payments-api     running   #incidents   60s        2024-01-15 14:32
- watch-9e2d3b1a   auth-service     running   —            120s       2024-01-15 14:31
+ ID               Service          Status    Notifier      Interval   Last Run
+ watch-a3f2b1c4   payments-api     running   default        60s        2024-01-15 14:32
+ watch-9e2d3b1a   auth-service     running   discord-ops   120s       2024-01-15 14:31
 ```
 
 **How it works:**
 1. `tinker watch start` calls `POST /api/v1/watches` on the server
 2. The server starts an asyncio task that polls `detect_anomalies` every `interval` seconds
-3. A SHA-256 hash of the current anomaly set is compared to the previous tick — Slack is only notified when the set changes
+3. A SHA-256 hash of the current anomaly set is compared to the previous tick — the notifier is only called when the set changes
 4. Watch state is persisted in the server's SQLite DB (`~/.tinker/tinker.db`) and resumed on server restart
 5. `tinker watch stop` calls `DELETE /api/v1/watches/{id}`, cancelling the asyncio task
 
-**Slack message format:**
+**Alert message format (Slack):**
 ```
 *Tinker Watch* — `payments-api`  [watch-a3f2b1c4]
 
@@ -219,7 +222,7 @@ tinker watch stop watch-abc123
 • *MEDIUM* `latency_p99` — 2.4s avg (threshold: 1s)
 ```
 
-Requires `SLACK_BOT_TOKEN` in `.env`.
+Notifiers are configured in `~/.tinker/config.toml` — see [Notifiers](#notifiers) below.
 
 ---
 
@@ -451,6 +454,88 @@ Native Bitbucket and GitLab providers are planned — contributions welcome.
 
 ---
 
+## Notifiers
+
+Notifiers control where watch alerts are sent. Configure them in `~/.tinker/config.toml` under `[notifiers.*]` — each key is a name you reference when starting a watch.
+
+`tinker init server` creates the `[notifiers.default]` entry automatically when you configure Slack.
+
+### Slack
+
+```toml
+[notifiers.default]
+type = "slack"
+bot_token = "env:SLACK_BOT_TOKEN"
+channel = "#incidents"
+
+[notifiers.payments-team]
+type = "slack"
+bot_token = "env:SLACK_BOT_TOKEN"   # same token, different channel
+channel = "#payments-oncall"
+```
+
+### Discord
+
+```toml
+[notifiers.discord-ops]
+type = "discord"
+webhook_url = "env:DISCORD_OPS_WEBHOOK_URL"
+```
+
+Create a webhook under **Server Settings → Integrations → Webhooks** in Discord. Add the URL to `~/.tinker/.env`:
+
+```bash
+DISCORD_OPS_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+### Generic webhook (PagerDuty, custom receivers, etc.)
+
+```toml
+[notifiers.pagerduty]
+type = "webhook"
+url = "env:PAGERDUTY_WEBHOOK_URL"
+header_Authorization = "env:PAGERDUTY_API_KEY"
+```
+
+The payload is:
+
+```json
+{
+  "watch_id": "watch-a3f2b1c4",
+  "service": "payments-api",
+  "anomaly_count": 2,
+  "anomalies": [
+    { "metric": "error_count", "severity": "high", "description": "847 errors in 10m" }
+  ]
+}
+```
+
+### Using notifiers in watches
+
+```bash
+# Default notifier
+tinker watch start payments-api
+
+# Named notifier
+tinker watch start payments-api --notifier discord-ops
+
+# Named notifier + override destination (Slack only)
+tinker watch start payments-api --notifier default --destination "#payments-oncall"
+```
+
+Or via API:
+
+```json
+POST /api/v1/watches
+{
+  "service": "payments-api",
+  "notifier": "discord-ops",
+  "interval_seconds": 60
+}
+```
+
+---
+
 ## Slack bot
 
 ### 1. Create a Slack app
@@ -497,45 +582,104 @@ TINKER_API_KEYS='[{"hash":"<sha256>","subject":"alice","roles":["oncall"]}]'
 
 ## Configuration reference
 
-`tinker init server` writes all of this automatically. For manual configuration:
+`tinker init server` writes all of this automatically. For manual setup, edit the two files it creates:
 
-### Server
+| File | Purpose |
+|---|---|
+| `~/.tinker/config.toml` | Structure — backends, notifiers, services, server settings, auth |
+| `~/.tinker/.env` | Secrets — API keys, tokens. Never commit this file |
 
-| Variable | Description | Default |
-|---|---|---|
-| `TINKER_BACKEND` | Active backend | `cloudwatch` |
-| `ANTHROPIC_API_KEY` | or `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | — |
-| `TINKER_DEFAULT_MODEL` | Model for triage | `anthropic/claude-sonnet-4-6` |
-| `TINKER_DEEP_RCA_MODEL` | Model for `--deep` | `anthropic/claude-opus-4-6` |
-| `TINKER_API_KEYS` | JSON array of hashed keys | `[]` |
-| `TINKER_SERVER_PORT` | Bind port | `8000` |
-| `TINKER_SERVER_HOST` | Bind host | `0.0.0.0` |
-| `GITHUB_TOKEN` | GitHub PAT (repo scope) for code investigation and auto-PRs | — |
-| `GITHUB_REPO` | Default repository (`owner/repo`) | — |
-| `GITHUB_REPOS` | JSON map of service → repo: `{"payments-api":"acme/payments"}` | `{}` |
+Secrets are referenced in `config.toml` as `"env:VAR_NAME"` and resolved at server startup.
+
+### `~/.tinker/config.toml` structure
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 8000
+log_level = "info"
+
+[llm]
+default_model = "anthropic/claude-sonnet-4-6"
+deep_rca_model = "anthropic/claude-opus-4-6"
+
+[auth]
+api_keys = [{hash = "<sha256>", subject = "alice", roles = ["oncall"]}]
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+[backends.default]
+type = "cloudwatch"
+region = "us-east-1"
+
+[backends.grafana-local]
+type = "grafana"
+loki_url = "http://loki:3100"
+prometheus_url = "http://prometheus:9090"
+service_label = "service"
+
+# ── Route specific services to non-default backends ───────────────────────────
+[services.payments-api]
+backend = "default"     # which [backends.*] entry to use
+repo = "acme/payments"  # GitHub repo for code investigation
+
+[services.ops-dashboard]
+backend = "grafana-local"
+
+# ── Notifiers (watch alert delivery) ─────────────────────────────────────────
+[notifiers.default]
+type = "slack"
+bot_token = "env:SLACK_BOT_TOKEN"
+channel = "#incidents"
+
+[notifiers.discord-ops]
+type = "discord"
+webhook_url = "env:DISCORD_OPS_WEBHOOK_URL"
+
+# ── Slack bot (slash commands) ────────────────────────────────────────────────
+[slack]
+bot_token = "env:SLACK_BOT_TOKEN"
+alerts_channel = "#incidents"
+
+# ── GitHub integration ────────────────────────────────────────────────────────
+[github]
+token = "env:GITHUB_TOKEN"
+default_repo = "acme/monorepo"
+```
+
+### `~/.tinker/.env` (secrets only)
+
+```bash
+# DO NOT COMMIT
+ANTHROPIC_API_KEY=sk-ant-...
+SLACK_BOT_TOKEN=xoxb-...
+GITHUB_TOKEN=ghp_...
+DISCORD_OPS_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
 
 ### CLI
 
 | File / Variable | Description |
 |---|---|
 | `~/.tinker/config` | Server URL + API token — written by `tinker init cli` |
-| `~/.tinker/.env` | Server config — written by `tinker init server`, auto-loaded by `tinker server` |
+| `~/.tinker/.env` | Server secrets — written by `tinker init server`, auto-loaded by `tinker server` |
+| `~/.tinker/config.toml` | Server structure config — written by `tinker init server` |
 | `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state |
 | `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinker/config`) |
 | `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinker/config`) |
 
-### Per-backend
+### Fallback: `.env`-only mode
 
-| Backend | Variables |
-|---|---|
-| `cloudwatch` | `AWS_REGION` — credentials from IAM role |
-| `gcp` | `GCP_PROJECT_ID` — credentials from Workload Identity |
-| `azure` | `AZURE_WORKSPACE_ID`, `AZURE_SUBSCRIPTION_ID` |
-| `grafana` | `GRAFANA_LOKI_URL`, `GRAFANA_PROMETHEUS_URL`, `GRAFANA_SERVICE_LABEL` (default: `service`) |
-| `datadog` | `DATADOG_API_KEY`, `DATADOG_APP_KEY`, `DATADOG_SITE` |
-| `elastic` | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` |
+If `config.toml` does not exist, the server falls back to env var configuration (original behaviour):
 
-See [.env.example](.env.example) for the full reference.
+| Variable | Description | Default |
+|---|---|---|
+| `TINKER_BACKEND` | Active backend | `cloudwatch` |
+| `ANTHROPIC_API_KEY` | or `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | — |
+| `TINKER_API_KEYS` | JSON array of hashed keys | `[]` |
+| `TINKER_SERVER_PORT` | Bind port | `8000` |
+| `TINKER_SERVER_HOST` | Bind host | `0.0.0.0` |
+
+See [.env.example](.env.example) for the full env var reference.
 
 ---
 
@@ -604,7 +748,8 @@ All per-user state lives in `~/.tinker/`:
 
 | File | Written by | Used by |
 |---|---|---|
-| `~/.tinker/.env` | `tinker init server` | `tinker server` (auto-loaded) |
+| `~/.tinker/config.toml` | `tinker init server` | `tinker server` (structure + routing) |
+| `~/.tinker/.env` | `tinker init server` | `tinker server` (secrets) |
 | `~/.tinker/config` | `tinker init cli` | all CLI commands |
 | `~/.tinker/tinker.db` | auto-created | `tinker monitor`, `tinker watch` |
 
