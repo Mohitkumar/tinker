@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from tinker.server.auth import AuthContext, require_auth
-from tinker.server.watch_manager import WatchManager
+from tinker.watches import WatchManager
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/watches", tags=["watches"])

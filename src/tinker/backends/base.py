@@ -175,7 +175,7 @@ class ObservabilityBackend(ABC):
         Call this from ``detect_anomalies`` before building the Anomaly object so
         that the LLM never receives thousands of raw identical log lines.
         """
-        from tinker.monitor.summarizer import LogSummarizer
+        from tinker.agent.summarizer import LogSummarizer
         return LogSummarizer().summarize(logs, window_minutes=window_minutes)
 
     # ── Convenience helpers (non-abstract) ────────────────────────────────────

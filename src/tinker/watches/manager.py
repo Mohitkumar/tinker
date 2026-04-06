@@ -32,7 +32,7 @@ from typing import Any
 
 import structlog
 
-from tinker.server.notifiers import NotifierRegistry
+from tinker.notifiers import NotifierRegistry
 from tinker.store.db import TinkerDB
 
 log = structlog.get_logger(__name__)
@@ -183,7 +183,6 @@ class WatchManager:
         if len(self._registry) > 0:
             await self._registry.send(notifier, anomalies, service, destination, watch_id)
         else:
-            # Legacy fallback: direct Slack post using settings (pre-notifier behaviour)
             await _post_slack_legacy(anomalies, service, destination, watch_id)
 
 
@@ -191,9 +190,7 @@ class WatchManager:
 
 def _anomaly_hash(anomalies: list) -> str:
     key = json.dumps(
-        sorted(
-            [(a.service, a.metric, a.severity) for a in anomalies]
-        ),
+        sorted([(a.service, a.metric, a.severity) for a in anomalies]),
         sort_keys=True,
     )
     return hashlib.sha256(key.encode()).hexdigest()[:16]

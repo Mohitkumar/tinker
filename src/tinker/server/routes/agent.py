@@ -75,7 +75,7 @@ async def explain(
     from tinker.agent import llm as llm_mod
     from tinker.agent.error_classifier import classify
     from tinker.config import settings
-    from tinker.monitor.summarizer import build_explain_context
+    from tinker.agent.summarizer import build_explain_context
 
     anomaly = req.anomaly
     service = anomaly.get("service", "unknown")
@@ -244,7 +244,7 @@ async def _fix_transient(
     """
     from tinker.agent import llm as llm_mod
     from tinker.config import settings
-    from tinker.monitor.summarizer import build_explain_context
+    from tinker.agent.summarizer import build_explain_context
 
     context_block = build_explain_context(anomaly)
 
@@ -305,7 +305,7 @@ async def _fix_logic_bug(
     """
     from tinker.agent import llm as llm_mod
     from tinker.config import settings
-    from tinker.monitor.summarizer import build_explain_context
+    from tinker.agent.summarizer import build_explain_context
 
     context_block = build_explain_context(anomaly)
     call_site_code = _fetch_code_context(error_class, anomaly.get("service", ""), deep=True)
