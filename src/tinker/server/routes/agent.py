@@ -177,7 +177,14 @@ async def fix(
         staged = await _fix_logic_bug(req.anomaly, error_class, gh)
 
     if not staged:
-        raise HTTPException(status_code=422, detail="Agent did not produce a fix.")
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Agent did not produce a fix. "
+                "The model may have responded with text instead of calling propose_fix. "
+                "Check server logs for 'fix.no_tool_call' or 'fix.llm_error'."
+            ),
+        )
 
     path = staged["path"]
     old_content = gh.get_file(path)
@@ -289,7 +296,7 @@ async def _fix_transient(
             }, "required": ["path", "new_content", "explanation"]}),
     ]
 
-    return _run_agent_loop(system_prompt, tools, gh, max_turns=4)
+    return await _run_agent_loop(system_prompt, tools, gh, max_turns=4)
 
 
 async def _fix_logic_bug(
@@ -361,10 +368,10 @@ async def _fix_logic_bug(
             }, "required": ["path", "new_content", "explanation"]}),
     ]
 
-    return _run_agent_loop(system_prompt, tools, gh, max_turns=12)
+    return await _run_agent_loop(system_prompt, tools, gh, max_turns=12)
 
 
-def _run_agent_loop(
+async def _run_agent_loop(
     system_prompt: str,
     tools: list[dict],
     gh: "GitHubCodeProvider",
@@ -373,13 +380,18 @@ def _run_agent_loop(
     from tinker.agent import llm as llm_mod
     from tinker import toml_config as tc
 
+    model = tc.get().llm.default_model
     messages: list[dict] = [{"role": "user", "content": system_prompt}]
     staged: dict | None = None
 
     for turn in range(max_turns):
-        response = llm_mod.complete(
-            messages, model=tc.get().llm.default_model, tools=tools, max_tokens=8192
-        )
+        try:
+            response = await llm_mod.async_complete(
+                messages, model=model, tools=tools, max_tokens=8192
+            )
+        except Exception as exc:
+            log.error("fix.llm_error", turn=turn, model=model, error=str(exc))
+            raise HTTPException(status_code=502, detail=f"LLM error on turn {turn}: {exc}")
 
         if llm_mod.is_tool_call(response):
             messages.append(llm_mod.assistant_message_from_response(response))
@@ -398,6 +410,9 @@ def _run_agent_loop(
             if staged:
                 break
         else:
+            # LLM returned text instead of a tool call — log it so it's visible
+            text = llm_mod.extract_text(response)
+            log.warning("fix.no_tool_call", turn=turn, text_preview=text[:200])
             break
 
     return staged

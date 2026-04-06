@@ -73,28 +73,34 @@ _sync_llm_keys()
 def _init_langfuse() -> None:
     """Register Langfuse as a LiteLLM callback if configured.
 
-    Langfuse is configured via ~/.tinker/.env:
+    Reads from ~/.tinker/.env:
         LANGFUSE_PUBLIC_KEY=pk-lf-...
         LANGFUSE_SECRET_KEY=sk-lf-...
-        LANGFUSE_HOST=https://cloud.langfuse.com   # optional, for self-hosted
+        LANGFUSE_HOST=https://cloud.langfuse.com       # or LANGFUSE_BASE_URL
 
-    All model calls (complete + stream_complete) are traced automatically
-    once the callback is registered — no per-call changes needed.
+    Must be called after the .env file has been loaded into os.environ.
+    Called once from server startup (lifespan) and from CLI entry points.
     """
     import os
+    # Normalise LANGFUSE_BASE_URL → LANGFUSE_HOST so LiteLLM can find it
+    if "LANGFUSE_HOST" not in os.environ and os.environ.get("LANGFUSE_BASE_URL"):
+        os.environ["LANGFUSE_HOST"] = os.environ["LANGFUSE_BASE_URL"]
+
     public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
     secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
     if not public_key or not secret_key:
         return
-    try:
-        litellm.success_callback.append("langfuse")
-        litellm.failure_callback.append("langfuse")
-        log.info("langfuse.enabled", host=os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"))
-    except Exception as exc:
-        log.warning("langfuse.init_failed", error=str(exc))
 
-
-_init_langfuse()
+    if "langfuse" not in litellm.success_callback:
+        try:
+            litellm.success_callback.append("langfuse")
+            litellm.failure_callback.append("langfuse")
+            log.info(
+                "langfuse.enabled",
+                host=os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+            )
+        except Exception as exc:
+            log.warning("langfuse.init_failed", error=str(exc))
 
 
 def _is_anthropic(model: str) -> bool:
@@ -137,6 +143,32 @@ def complete(
 
     log.debug("llm.complete", model=model, n_messages=len(messages))
     return litellm.completion(**kwargs)
+
+
+# ── Async non-streaming completion ───────────────────────────────────────────
+
+async def async_complete(
+    messages: list[dict[str, Any]],
+    model: str,
+    tools: list[dict[str, Any]] | None = None,
+    thinking: bool = False,
+    max_tokens: int = 8192,
+) -> litellm.ModelResponse:
+    """Async version of complete() — does not block the event loop."""
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+
+    if thinking and _supports_thinking(model):
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 8000}
+
+    log.debug("llm.async_complete", model=model, n_messages=len(messages))
+    return await litellm.acompletion(**kwargs)
 
 
 # ── Streaming completion ──────────────────────────────────────────────────────

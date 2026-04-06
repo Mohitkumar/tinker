@@ -20,9 +20,13 @@ async def _lifespan(app: FastAPI):
     from tinker.watches import WatchManager
     from tinker.server.routes.watches import set_manager
     from tinker import toml_config as tc
+    from tinker.agent.llm import _init_langfuse
 
-    registry = NotifierRegistry()
+    # toml_config.get() calls _load_env_file_into_environ() which injects
+    # ~/.tinker/.env into os.environ — Langfuse keys must be available before
+    # _init_langfuse() checks for them.
     cfg = tc.get()
+    _init_langfuse()
     notifiers = cfg.get_notifiers()
     if notifiers:
         registry.build_from_toml(notifiers)
