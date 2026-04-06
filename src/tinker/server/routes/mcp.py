@@ -202,12 +202,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             case "get_file":
                 from tinker.code.repo import RepoClient
-                content = RepoClient(settings.tinker_repo_path or ".").read_file(arguments["path"])
+                content = RepoClient(".").read_file(arguments["path"])
                 return _text(content)
 
             case "search_code":
                 from tinker.code.repo import RepoClient
-                result = RepoClient(settings.tinker_repo_path or ".").search(
+                result = RepoClient(".").search(
                     arguments["pattern"],
                     arguments.get("file_glob", "**/*.py"),
                     arguments.get("context_lines", 3),

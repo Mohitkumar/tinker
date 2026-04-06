@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 import structlog
 
 from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
-from tinker.config import settings
-
 log = structlog.get_logger(__name__)
 
 
@@ -20,7 +18,7 @@ class GCPBackend(ObservabilityBackend):
         from google.cloud import monitoring_v3
 
         cfg = config or {}
-        self._project = cfg.get("project_id") or settings.gcp_project_id or ""
+        self._project = cfg.get("project_id") or ""
         self._logging_client = gcp_logging.Client(project=self._project)
         self._monitoring_client = monitoring_v3.MetricServiceClient()
 

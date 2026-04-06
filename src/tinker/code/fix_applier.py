@@ -8,8 +8,6 @@ from pathlib import Path
 
 import structlog
 
-from tinker.config import settings
-
 log = structlog.get_logger(__name__)
 
 
@@ -83,8 +81,10 @@ class FixApplier:
         """Apply diff, commit, push, and open a GitHub PR. Returns the PR URL."""
         import asyncio
 
-        token = settings.github_token
-        repo = settings.github_repo
+        from tinker import toml_config as tc
+        gh_cfg = tc.get().github
+        token = gh_cfg.token
+        repo = gh_cfg.default_repo
         if not token or not repo:
             raise RuntimeError("GITHUB_TOKEN and GITHUB_REPO must be set to create PRs")
 

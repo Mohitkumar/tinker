@@ -87,15 +87,14 @@ def _get_session(thread_ts: str, service: str = "") -> AgentSession:
 # ── App setup ─────────────────────────────────────────────────────────────────
 
 def build_app() -> AsyncApp:
-    from tinker.config import settings
-    token = settings.slack_bot_token
-    secret = settings.slack_signing_secret
-    if not token or not secret:
-        raise RuntimeError("SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET must be set")
+    from tinker import toml_config as tc
+    slack = tc.get().slack
+    if not slack.bot_token or not slack.signing_secret:
+        raise RuntimeError("slack.bot_token and slack.signing_secret must be set in config.toml [slack]")
 
     app = AsyncApp(
-        token=token.get_secret_value(),
-        signing_secret=secret.get_secret_value(),
+        token=slack.bot_token,
+        signing_secret=slack.signing_secret,
     )
 
     # ── /tinker-logs ──────────────────────────────────────────────────────────
@@ -423,11 +422,11 @@ def _format_incident_blocks(report: Any) -> list[dict[str, Any]]:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def start_bot() -> None:
-    from tinker.config import settings
+    from tinker import toml_config as tc
     app = build_app()
-    app_token = settings.slack_app_token
+    app_token = tc.get().slack.app_token
     if not app_token:
-        raise RuntimeError("SLACK_APP_TOKEN must be set for Socket Mode")
-    handler = AsyncSocketModeHandler(app, app_token.get_secret_value())
+        raise RuntimeError("slack.app_token must be set in config.toml [slack] for Socket Mode")
+    handler = AsyncSocketModeHandler(app, app_token)
     log.info("slack_bot.starting")
     await handler.start_async()

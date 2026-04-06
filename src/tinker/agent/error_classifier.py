@@ -161,7 +161,7 @@ def _classify_with_llm(
     """Single cheap LLM call to classify when heuristics are inconclusive."""
     try:
         from tinker.agent import llm as llm_mod
-        from tinker.config import settings
+        from tinker import toml_config as tc
 
         prompt = (
             "Classify this production anomaly as ONE of: transient, logic_bug, unknown.\n\n"
@@ -176,7 +176,7 @@ def _classify_with_llm(
         )
         response = llm_mod.complete(
             [{"role": "user", "content": prompt}],
-            model=settings.default_model,
+            model=tc.get().llm.default_model,
             max_tokens=100,
         )
         raw = llm_mod.extract_text(response).strip()

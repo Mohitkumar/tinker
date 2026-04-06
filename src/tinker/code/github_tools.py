@@ -24,30 +24,25 @@ class GitHubCodeProvider:
     """
 
     def __init__(self, service: str | None = None) -> None:
-        import json
         from github import Github
-        from tinker.config import settings
+        from tinker import toml_config as tc
 
-        if not settings.github_token:
+        gh_cfg = tc.get().github
+        if not gh_cfg.token:
             raise RuntimeError(
-                "GITHUB_TOKEN is not configured. "
-                "Set it in ~/.tinker/.env or run `tinker init server`."
+                "GitHub token is not configured. "
+                "Set github.token in config.toml or run `tinker init server`."
             )
 
-        token = settings.github_token.get_secret_value()
-        self._gh = Github(token)
+        self._gh = Github(gh_cfg.token)
 
-        # Resolve which repo to use
+        # Resolve which repo to use: per-service override first, then default
         repo_name: str | None = None
         if service:
-            try:
-                repos_map: dict[str, str] = json.loads(settings.github_repos)
-                repo_name = repos_map.get(service)
-            except Exception:
-                pass
+            repo_name = tc.get().get_service(service).repo
 
         if not repo_name:
-            repo_name = settings.github_repo
+            repo_name = gh_cfg.default_repo
 
         if not repo_name:
             raise RuntimeError(

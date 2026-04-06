@@ -74,7 +74,7 @@ async def explain(
     """Stream an LLM explanation, enriched with code context when GitHub is configured."""
     from tinker.agent import llm as llm_mod
     from tinker.agent.error_classifier import classify
-    from tinker.config import settings
+    from tinker import toml_config as tc
     from tinker.agent.summarizer import build_explain_context
 
     anomaly = req.anomaly
@@ -131,7 +131,7 @@ async def explain(
         try:
             async for chunk in llm_mod.stream_complete(
                 [{"role": "user", "content": prompt}],
-                model=settings.default_model,
+                model=tc.get().llm.default_model,
             ):
                 yield _sse(chunk)
         except Exception:
@@ -243,7 +243,6 @@ async def _fix_transient(
     Max 4 turns — the fix should be a targeted configuration or guard change.
     """
     from tinker.agent import llm as llm_mod
-    from tinker.config import settings
     from tinker.agent.summarizer import build_explain_context
 
     context_block = build_explain_context(anomaly)
@@ -304,7 +303,6 @@ async def _fix_logic_bug(
     Max 12 turns.
     """
     from tinker.agent import llm as llm_mod
-    from tinker.config import settings
     from tinker.agent.summarizer import build_explain_context
 
     context_block = build_explain_context(anomaly)
@@ -373,14 +371,14 @@ def _run_agent_loop(
     max_turns: int,
 ) -> dict | None:
     from tinker.agent import llm as llm_mod
-    from tinker.config import settings
+    from tinker import toml_config as tc
 
     messages: list[dict] = [{"role": "user", "content": system_prompt}]
     staged: dict | None = None
 
     for turn in range(max_turns):
         response = llm_mod.complete(
-            messages, model=settings.default_model, tools=tools, max_tokens=8192
+            messages, model=tc.get().llm.default_model, tools=tools, max_tokens=8192
         )
 
         if llm_mod.is_tool_call(response):

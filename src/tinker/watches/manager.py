@@ -199,13 +199,13 @@ def _anomaly_hash(anomalies: list) -> str:
 async def _post_slack_legacy(anomalies: list, service: str, channel: str | None, watch_id: str) -> None:
     """Backward-compatible Slack post for setups without [notifiers] in config.toml."""
     try:
-        from tinker.config import settings
-        token = settings.slack_bot_token
-        if not token:
+        from tinker import toml_config as tc
+        slack = tc.get().slack
+        if not slack.bot_token:
             return
-        ch = channel or settings.slack_alerts_channel
+        ch = channel or slack.alerts_channel
         from slack_sdk.web.async_client import AsyncWebClient
-        client = AsyncWebClient(token=token.get_secret_value())
+        client = AsyncWebClient(token=slack.bot_token)
 
         lines = [f"*Tinker Watch* — `{service}`  [{watch_id}]", ""]
         for a in anomalies[:5]:

@@ -8,8 +8,6 @@ from typing import Any
 import structlog
 
 from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
-from tinker.config import settings
-
 log = structlog.get_logger(__name__)
 
 
@@ -20,11 +18,8 @@ class ElasticBackend(ObservabilityBackend):
         from elasticsearch import AsyncElasticsearch
 
         cfg = config or {}
-        url = cfg.get("url") or settings.elasticsearch_url or "http://localhost:9200"
+        url = cfg.get("url") or "http://localhost:9200"
         raw_key = cfg.get("api_key")
-        if not raw_key:
-            sk = settings.elasticsearch_api_key
-            raw_key = sk.get_secret_value() if sk else None
         self._client = AsyncElasticsearch(hosts=[url], api_key=raw_key)
         self._index_pattern = cfg.get("index_pattern") or "logs-*"
 

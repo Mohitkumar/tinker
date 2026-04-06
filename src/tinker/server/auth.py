@@ -77,9 +77,9 @@ def _load_api_keys() -> dict[str, dict]:
     except Exception:
         pass
 
-    # Fall back to legacy TINKER_API_KEYS env var
-    from tinker.config import settings
-    raw = settings.tinker_api_keys
+    # Fall back to TINKER_API_KEYS env var
+    import os
+    raw = os.environ.get("TINKER_API_KEYS", "[]")
     try:
         entries = json.loads(raw)
         return {entry["hash"]: entry for entry in entries}

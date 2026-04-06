@@ -23,7 +23,7 @@ from tinker.agent import llm
 from tinker.agent.guardrails import GuardRailChain, PendingApprovalError
 from tinker.agent.prompts import RCA_SYSTEM_PROMPT
 from tinker.agent.tools import TOOL_DEFINITIONS, ToolDispatcher
-from tinker.config import settings
+from tinker import toml_config as _tc
 
 log = structlog.get_logger(__name__)
 
@@ -99,7 +99,7 @@ class Orchestrator:
         self._guardrails = guardrails or GuardRailChain()
         self._dispatcher = dispatcher or ToolDispatcher(guardrails=self._guardrails)
         self._model = model or (
-            settings.deep_rca_model if use_deep_rca else settings.default_model
+            _tc.get().llm.deep_rca_model if use_deep_rca else _tc.get().llm.default_model
         )
         self._use_deep_rca = use_deep_rca
         log.info("orchestrator.init", model=self._model)
