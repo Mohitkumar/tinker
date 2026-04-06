@@ -209,10 +209,33 @@ def _resolve_dict(d: dict) -> dict:
 
 # ── Loader ────────────────────────────────────────────────────────────────────
 
+def _load_env_file_into_environ() -> None:
+    """Load ~/.tinker/.env into os.environ so env: references resolve correctly.
+
+    pydantic-settings reads the file into its own settings object but does NOT
+    inject values into os.environ. toml_config._resolve() reads os.environ, so
+    we need to bridge the gap ourselves. Existing env vars are never overwritten.
+    """
+    env_path = Path.home() / ".tinker" / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def load(path: Path = _CONFIG_PATH) -> TomlConfig:
     """Parse *path* and return a TomlConfig.  Returns an empty config if the
     file does not exist (backward-compat with .env-only setups).
     """
+    _load_env_file_into_environ()
+
     if not path.exists():
         return TomlConfig()
 
