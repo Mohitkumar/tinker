@@ -2,7 +2,7 @@
 
 Layout
 ------
-  ~/.tinker/config.toml   — structure (backends, services, server settings)
+  ~/.tinker/config.toml   — structure (profiles, services, notifiers, server settings)
   ~/.tinker/.env          — secrets (API keys, tokens) — never committed
 
 Secret references
@@ -12,12 +12,8 @@ environment at load time:
 
     api_key = "env:GRAFANA_API_KEY"   →  os.environ["GRAFANA_API_KEY"]
 
-If the referenced variable is not set the field is left as None (with a warning).
-
-Fallback
---------
-If config.toml does not exist the loader returns an empty TomlConfig so all
-callers fall back to the existing pydantic-settings / .env behaviour.
+~/.tinker/.env is automatically loaded into os.environ before resolution so
+secrets written by ``tinker init server`` are always available.
 """
 
 from __future__ import annotations
@@ -59,17 +55,6 @@ class ApiKeyEntry:
 @dataclass
 class AuthSection:
     api_keys: list[ApiKeyEntry] = field(default_factory=list)
-
-
-@dataclass
-class BackendConfig:
-    """Config for one named backend (e.g. [backends.prod])."""
-    type: str                          # cloudwatch | grafana | gcp | azure | datadog | elastic | otel
-    # All other keys stored verbatim (secrets already resolved)
-    options: dict[str, str] = field(default_factory=dict)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.options.get(key, default)
 
 
 @dataclass
@@ -127,20 +112,10 @@ class TomlConfig:
     server: ServerSection = field(default_factory=ServerSection)
     llm: LLMSection = field(default_factory=LLMSection)
     auth: AuthSection = field(default_factory=AuthSection)
-    # Profiles (new — preferred over legacy backends dict)
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
     active_profile: str | None = None
-    # Legacy flat sections — still parsed for backward compat
-    backends: dict[str, BackendConfig] = field(default_factory=dict)
-    services: dict[str, ServiceConfig] = field(default_factory=dict)
-    notifiers: dict[str, NotifierConfig] = field(default_factory=dict)
     slack: SlackSection = field(default_factory=SlackSection)
     github: GitHubSection = field(default_factory=GitHubSection)
-
-    # Name of the default legacy backend
-    _default_backend: str | None = field(default=None, repr=False)
-
-    # ── Profile helpers ───────────────────────────────────────────────────────
 
     def active_profile_config(self) -> ProfileConfig | None:
         """Return the active ProfileConfig, or None if no profiles are defined."""
@@ -150,42 +125,18 @@ class TomlConfig:
         return self.profiles.get(key)
 
     def get_notifiers(self) -> dict[str, NotifierConfig]:
-        """Return notifiers from the active profile, falling back to root-level."""
+        """Return notifiers from the active profile."""
         profile = self.active_profile_config()
-        if profile and profile.notifiers:
+        if profile:
             return profile.notifiers
-        return self.notifiers
-
-    # ── Service / backend resolution ──────────────────────────────────────────
+        return {}
 
     def get_service(self, service: str) -> ServiceConfig:
-        """Return config for *service*, checking the active profile first."""
+        """Return config for *service* from the active profile."""
         profile = self.active_profile_config()
         if profile and service in profile.services:
             return profile.services[service]
-        return self.services.get(service, ServiceConfig())
-
-    def get_backend_config(self, name: str | None = None) -> BackendConfig | None:
-        """Return the backend config for *name*, or the active profile's backend."""
-        profile = self.active_profile_config()
-        if profile:
-            return BackendConfig(type=profile.backend, options=dict(profile.options))
-        # Legacy fallback
-        if not self.backends:
-            return None
-        key = name or self._default_backend
-        if key and key in self.backends:
-            return self.backends[key]
-        return next(iter(self.backends.values()))
-
-    def get_backend_for_service(self, service: str) -> BackendConfig | None:
-        """Return the backend config that should handle *service*."""
-        profile = self.active_profile_config()
-        if profile:
-            return BackendConfig(type=profile.backend, options=dict(profile.options))
-        # Legacy fallback
-        svc = self.get_service(service)
-        return self.get_backend_config(svc.backend)
+        return ServiceConfig()
 
 
 # ── Secret resolution ─────────────────────────────────────────────────────────
@@ -231,9 +182,7 @@ def _load_env_file_into_environ() -> None:
 
 
 def load(path: Path = _CONFIG_PATH) -> TomlConfig:
-    """Parse *path* and return a TomlConfig.  Returns an empty config if the
-    file does not exist (backward-compat with .env-only setups).
-    """
+    """Parse *path* and return a TomlConfig. Returns an empty config if the file does not exist."""
     _load_env_file_into_environ()
 
     if not path.exists():
@@ -323,34 +272,6 @@ def load(path: Path = _CONFIG_PATH) -> TomlConfig:
             notifiers=profile_notifiers,
         )
 
-    # [backends.*]  (legacy — kept for backward compat with existing configs)
-    for name, b in raw.get("backends", {}).items():
-        btype = b.get("type", "")
-        cfg.backends[name] = BackendConfig(
-            type=btype,
-            options=_resolve_dict({k: v for k, v in b.items() if k != "type"}),
-        )
-    if cfg.backends:
-        cfg._default_backend = next(iter(cfg.backends))
-
-    # [notifiers.*]  (legacy root-level notifiers)
-    for name, n in raw.get("notifiers", {}).items():
-        ntype = n.get("type", "")
-        cfg.notifiers[name] = NotifierConfig(
-            type=ntype,
-            options=_resolve_dict({k: v for k, v in n.items() if k != "type"}),
-        )
-
-    # [services.*]  (legacy root-level services)
-    for name, s in raw.get("services", {}).items():
-        cfg.services[name] = ServiceConfig(
-            backend=s.get("backend"),
-            log_format=s.get("log_format", "label"),
-            log_level_field=s.get("log_level_field", "level"),
-            repo=s.get("repo"),
-            resource_type=s.get("resource_type"),
-        )
-
     # [slack]
     if sl := raw.get("slack"):
         cfg.slack = SlackSection(
@@ -372,9 +293,6 @@ def load(path: Path = _CONFIG_PATH) -> TomlConfig:
         path=str(path),
         active_profile=cfg.active_profile,
         profiles=list(cfg.profiles),
-        backends=list(cfg.backends),
-        services=list(cfg.services),
-        notifiers=list(cfg.notifiers),
     )
     return cfg
 

@@ -14,8 +14,8 @@ Claude Code configuration (.claude/settings.json):
 }
 
 This single endpoint exposes ALL tools from all configured backends,
-plus the GitHub/codebase tools. The active backend is controlled by
-the TINKER_BACKEND env var on the server — clients don't need to know
+plus the GitHub/codebase tools. The active backend is determined by
+the active profile in config.toml — clients don't need to know
 which cloud provider is in use.
 """
 
@@ -30,7 +30,6 @@ from mcp.types import TextContent, Tool
 from tinker.backends import get_backend
 from tinker.backends.base import ObservabilityBackend
 from tinker.backends.sanitize import sanitize_log_content
-from tinker.config import settings
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/mcp", tags=["mcp"])
@@ -56,7 +55,10 @@ def _text(content: object) -> list[TextContent]:
 @_mcp_server.list_tools()
 async def list_tools() -> list[Tool]:
     """Return all Tinker tools. The observability tools reflect the active backend."""
-    backend_name = settings.tinker_backend
+    from tinker import toml_config as tc
+    cfg = tc.get()
+    profile = cfg.active_profile_config()
+    backend_name = profile.backend if profile else "unknown"
     return [
         # ── Observability tools (backend-agnostic names) ──────────────────
         Tool(

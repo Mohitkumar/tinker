@@ -101,24 +101,14 @@ def create_app() -> FastAPI:
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health", tags=["ops"])
     async def health():
-        from tinker.config import settings
         from tinker import toml_config as tc
         cfg = tc.get()
-        if cfg.profiles:
-            backends_info = {name: p.backend for name, p in cfg.profiles.items()}
-            active = cfg.active_profile or next(iter(cfg.profiles))
-        elif cfg.backends:
-            backends_info = {name: b.type for name, b in cfg.backends.items()}
-            active = next(iter(cfg.backends))
-        else:
-            backends_info = {"default": settings.tinker_backend}
-            active = settings.tinker_backend
+        active = cfg.active_profile or (next(iter(cfg.profiles)) if cfg.profiles else None)
         return {
             "status": "ok",
             "version": __version__,
-            "backend": active,
-            "backends": backends_info,
-            "active_profile": cfg.active_profile,
+            "active_profile": active,
+            "profiles": {name: p.backend for name, p in cfg.profiles.items()},
         }
 
     return app
@@ -126,14 +116,12 @@ def create_app() -> FastAPI:
 
 def main() -> None:
     import uvicorn
-    from tinker.config import settings
     from tinker import toml_config as tc
 
     toml = tc.get()
-    has_config = bool(toml.profiles or toml.backends)
-    host = toml.server.host if has_config else settings.tinker_server_host
-    port = toml.server.port if has_config else settings.tinker_server_port
-    log_level = toml.server.log_level if has_config else settings.log_level.lower()
+    host = toml.server.host
+    port = toml.server.port
+    log_level = toml.server.log_level
 
     uvicorn.run(
         "tinker.server.app:create_app",

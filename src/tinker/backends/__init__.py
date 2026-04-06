@@ -1,18 +1,17 @@
 """Observability backend registry.
 
-Two operating modes
--------------------
-Legacy (.env only)
-    TINKER_BACKEND=grafana in the environment selects a single backend for all
-    services. All backends read their config from pydantic-settings / .env.
+Backend selection
+-----------------
+The active backend is determined by the active profile in ~/.tinker/config.toml:
 
-TOML config (~/.tinker/config.toml)
-    Named backends are declared under [backends.*].  Services are routed to
-    their backend via [services.<name>].backend.  Backend instances are cached
-    so each named backend is constructed once per process.
+    active_profile = "aws-prod"
 
-    Use get_backend_for_service(service) in route handlers.
-    get_backend() is kept for backward compat and returns the default backend.
+    [profiles.aws-prod]
+    backend = "cloudwatch"
+    region  = "us-east-1"
+
+All services in a profile share the profile's backend.
+Use get_backend_for_service(service) in route handlers.
 """
 
 from __future__ import annotations
@@ -54,54 +53,25 @@ def _make_backend(type_key: str, config: dict | None = None) -> ObservabilityBac
     return cls(config=config) if config is not None else cls()
 
 
-def get_backend(name: str | None = None) -> ObservabilityBackend:
-    """Return a backend by name or TINKER_BACKEND env var.
-
-    In TOML mode this returns the default backend (first declared under
-    [backends.*]).  Instances are cached per name/type.
-    """
+def get_backend() -> ObservabilityBackend:
+    """Return the backend for the active profile."""
     from tinker import toml_config as tc
     cfg = tc.get()
-
-    if cfg.backends:
-        # TOML mode — use default backend
-        backend_cfg = cfg.get_backend_config(name)
-        if backend_cfg:
-            cache_key = name or cfg._default_backend or backend_cfg.type
-            if cache_key not in _instances:
-                log.info("backend.init", name=cache_key, type=backend_cfg.type)
-                _instances[cache_key] = _make_backend(backend_cfg.type, backend_cfg.options)
-            return _instances[cache_key]
-
-    # Legacy .env mode
-    from tinker.config import settings
-    key = (name or settings.tinker_backend).lower()
-    if key not in _instances:
-        log.info("backend.init", backend=key)
-        _instances[key] = _make_backend(key)
-    return _instances[key]
+    profile = cfg.active_profile_config()
+    if not profile:
+        raise RuntimeError(
+            "No active profile configured. "
+            "Run 'tinker init server' or add a profile with 'tinker profile add'."
+        )
+    cache_key = f"profile:{cfg.active_profile or next(iter(cfg.profiles))}"
+    if cache_key not in _instances:
+        log.info("backend.init", profile=cfg.active_profile, type=profile.backend)
+        _instances[cache_key] = _make_backend(profile.backend, profile.options)
+    return _instances[cache_key]
 
 
-def get_backend_for_service(service: str) -> ObservabilityBackend:
-    """Return the backend that should handle *service*.
-
-    In TOML mode, looks up [services.<service>].backend and returns the
-    corresponding cached backend instance.  Falls back to get_backend() when
-    no TOML config exists or the service is not explicitly mapped.
-    """
-    from tinker import toml_config as tc
-    cfg = tc.get()
-
-    if cfg.backends:
-        svc_cfg = cfg.get_service(service)
-        backend_name = svc_cfg.backend or cfg._default_backend
-        if backend_name and backend_name in cfg.backends:
-            if backend_name not in _instances:
-                b = cfg.backends[backend_name]
-                log.info("backend.init", name=backend_name, type=b.type)
-                _instances[backend_name] = _make_backend(b.type, b.options)
-            return _instances[backend_name]
-
+def get_backend_for_service(_service: str) -> ObservabilityBackend:
+    """Return the backend for the given service (uses the active profile's backend)."""
     return get_backend()
 
 

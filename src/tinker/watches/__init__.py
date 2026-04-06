@@ -9,7 +9,7 @@ Usage
     from tinker.notifiers import NotifierRegistry
 
     registry = NotifierRegistry()
-    registry.build_from_toml(cfg.notifiers)
+    registry.build_from_toml(cfg.get_notifiers())
 
     manager = WatchManager(registry=registry)
     await manager.start()   # resumes persisted watches

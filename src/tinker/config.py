@@ -52,10 +52,6 @@ class TinkerConfig(BaseSettings):
         "anthropic/claude-opus-4-6", alias="TINKER_DEEP_RCA_MODEL"
     )
 
-    # ── Active backend ────────────────────────────────────────────────────────
-    # One of: cloudwatch | gcp | azure | grafana | datadog | elastic | otel
-    tinker_backend: str = Field("cloudwatch", alias="TINKER_BACKEND")
-
     # ── Server ────────────────────────────────────────────────────────────────
     tinker_server_host: str = Field("0.0.0.0", alias="TINKER_SERVER_HOST")
     tinker_server_port: int = Field(8000, alias="TINKER_SERVER_PORT")
