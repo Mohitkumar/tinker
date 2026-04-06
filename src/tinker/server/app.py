@@ -27,6 +27,8 @@ async def _lifespan(app: FastAPI):
     # _init_langfuse() checks for them.
     cfg = tc.get()
     _init_langfuse()
+
+    registry = NotifierRegistry()
     notifiers = cfg.get_notifiers()
     if notifiers:
         registry.build_from_toml(notifiers)
