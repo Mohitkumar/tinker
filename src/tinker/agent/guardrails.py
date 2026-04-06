@@ -1,14 +1,17 @@
-"""Guardrails: approval gates, RBAC, audit logging, and input sanitization."""
+"""Guardrails: approval gates, RBAC, and audit logging."""
 
 from __future__ import annotations
 
-import re
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
+
+# sanitize_log_content lives in backends.sanitize (data layer).
+# Re-exported here so existing imports keep working.
+from tinker.backends.sanitize import sanitize_log_content  # noqa: F401
 
 log = structlog.get_logger(__name__)
 
@@ -30,17 +33,6 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "sre-lead": {"*"},  # all tools
 }
-
-# Patterns that look like prompt injection or credential leakage
-_INJECTION_PATTERNS = [
-    re.compile(r"ignore\s+previous\s+instructions", re.IGNORECASE),
-    re.compile(r"you\s+are\s+now\s+", re.IGNORECASE),
-    re.compile(r"system\s+prompt", re.IGNORECASE),
-    re.compile(r"AKIA[A-Z0-9]{16}"),          # AWS access key
-    re.compile(r"sk-ant-[A-Za-z0-9\-]+"),     # Anthropic API key
-    re.compile(r"xox[bpa]-[A-Za-z0-9\-]+"),   # Slack tokens
-    re.compile(r"ghp_[A-Za-z0-9]{36}"),       # GitHub tokens
-]
 
 
 class PendingApprovalError(Exception):
@@ -119,20 +111,6 @@ class AuditLogger(GuardRail):
             timestamp=datetime.now(timezone.utc).isoformat(),
             input=safe_input,
         )
-
-
-# ── Input sanitization ────────────────────────────────────────────────────────
-
-
-def sanitize_log_content(content: str) -> str:
-    """Remove patterns that look like credentials or prompt injections.
-
-    Call this on any external data (log lines, metrics labels) before
-    including it in a prompt sent to the LLM.
-    """
-    for pattern in _INJECTION_PATTERNS:
-        content = pattern.sub("[REDACTED]", content)
-    return content
 
 
 # ── Composite gate ────────────────────────────────────────────────────────────

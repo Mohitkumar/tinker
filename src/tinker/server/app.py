@@ -86,8 +86,12 @@ def create_app() -> FastAPI:
 
     # ── Slack bot (mounted as ASGI sub-app) ───────────────────────────────────
     try:
-        from tinker.server.slack_handler import build_slack_app
-        slack_handler = build_slack_app()
+        from tinker.config import settings
+        if not settings.slack_bot_token or not settings.slack_signing_secret:
+            raise RuntimeError("SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET must be set")
+        from tinker.interfaces.slack_bot import build_app as build_bolt_app
+        from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+        slack_handler = AsyncSlackRequestHandler(build_bolt_app())
         app.mount("/slack", slack_handler)
         log.info("slack.mounted")
     except Exception:

@@ -29,7 +29,7 @@ from mcp.types import TextContent, Tool
 
 from tinker.backends import get_backend
 from tinker.backends.base import ObservabilityBackend
-from tinker.agent.guardrails import sanitize_log_content
+from tinker.backends.sanitize import sanitize_log_content
 from tinker.config import settings
 
 log = structlog.get_logger(__name__)

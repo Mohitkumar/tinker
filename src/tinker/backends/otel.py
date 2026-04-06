@@ -32,7 +32,7 @@ import httpx
 import structlog
 
 from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
-from tinker.agent.guardrails import sanitize_log_content
+from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
 

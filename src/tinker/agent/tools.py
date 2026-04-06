@@ -15,7 +15,8 @@ from typing import Any
 
 import structlog
 
-from tinker.agent.guardrails import GuardRailChain, sanitize_log_content
+from tinker.agent.guardrails import GuardRailChain
+from tinker.backends.sanitize import sanitize_log_content
 from tinker.backends import get_backend
 from tinker.backends.base import ObservabilityBackend
 

@@ -25,7 +25,7 @@ from typing import Any
 import structlog
 from mcp.types import Tool
 
-from tinker.agent.guardrails import sanitize_log_content
+from tinker.backends.sanitize import sanitize_log_content
 from tinker.backends.azure import AzureBackend
 from tinker.mcp_servers.base import TinkerMCPServer
 
