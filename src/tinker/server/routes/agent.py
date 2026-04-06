@@ -296,7 +296,9 @@ async def _fix_transient(
             }, "required": ["path", "new_content", "explanation"]}),
     ]
 
-    return await _run_agent_loop(system_prompt, tools, gh, max_turns=4)
+    from tinker import toml_config as tc
+    return await _run_agent_loop(system_prompt, tools, gh, max_turns=4,
+                                 model=tc.get().llm.deep_rca_model)
 
 
 async def _fix_logic_bug(
@@ -368,7 +370,9 @@ async def _fix_logic_bug(
             }, "required": ["path", "new_content", "explanation"]}),
     ]
 
-    return await _run_agent_loop(system_prompt, tools, gh, max_turns=12)
+    from tinker import toml_config as tc
+    return await _run_agent_loop(system_prompt, tools, gh, max_turns=12,
+                                 model=tc.get().llm.deep_rca_model)
 
 
 async def _run_agent_loop(
@@ -376,11 +380,12 @@ async def _run_agent_loop(
     tools: list[dict],
     gh: "GitHubCodeProvider",
     max_turns: int,
+    model: str | None = None,
 ) -> dict | None:
     from tinker.agent import llm as llm_mod
     from tinker import toml_config as tc
 
-    model = tc.get().llm.default_model
+    model = model or tc.get().llm.default_model
     messages: list[dict] = [{"role": "user", "content": system_prompt}]
     staged: dict | None = None
 

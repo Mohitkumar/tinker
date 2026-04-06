@@ -10,8 +10,73 @@ from __future__ import annotations
 
 import difflib
 import structlog
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from github.Repository import Repository
 
 log = structlog.get_logger(__name__)
+
+# Cached flat file tree per repo (sha → list[path]).  Avoids re-fetching the
+# tree on every tool call within the same agent loop.
+_tree_cache: dict[str, list[str]] = {}
+
+
+def _repo_file_tree(repo: "Repository") -> list[str]:
+    """Return all blob paths in the repo using the recursive git tree API.
+
+    Results are cached by the HEAD commit SHA so they stay fresh across deploys
+    without hammering the API.
+    """
+    head_sha = repo.get_branch(repo.default_branch).commit.sha
+    if head_sha in _tree_cache:
+        return _tree_cache[head_sha]
+    tree = repo.get_git_tree(head_sha, recursive=True)
+    paths = [item.path for item in tree.tree if item.type == "blob"]
+    _tree_cache[head_sha] = paths
+    return paths
+
+
+def _resolve_path(repo: "Repository", path: str) -> str | None:
+    """Find the best repo path for a (possibly container-relative) stack path.
+
+    Matching strategy (first match wins):
+      1. Exact match
+      2. Any repo path whose suffix equals *path*           (handles leading /app/, /src/, etc.)
+      3. Any repo path whose basename equals basename(path) (single unique filename)
+
+    Returns the resolved repo path, or None if no match.
+    """
+    import os as _os
+    all_paths = _repo_file_tree(repo)
+
+    # 1. Exact
+    if path in all_paths:
+        return path
+
+    # 2. Suffix match — strip leading slashes so comparison is clean
+    clean = path.lstrip("/")
+    suffix_matches = [p for p in all_paths if p.endswith(clean)]
+    if len(suffix_matches) == 1:
+        return suffix_matches[0]
+    if len(suffix_matches) > 1:
+        # Return the shortest (most specific) match
+        return min(suffix_matches, key=len)
+
+    # 3. Filename match
+    basename = _os.path.basename(path)
+    name_matches = [p for p in all_paths if _os.path.basename(p) == basename]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        # Multiple files with same name — pick the one whose directory components
+        # overlap most with the requested path
+        requested_parts = set(clean.replace("\\", "/").split("/"))
+        def _overlap(p: str) -> int:
+            return len(set(p.split("/")) & requested_parts)
+        return max(name_matches, key=_overlap)
+
+    return None
 
 
 def _normalise_repo(repo: str) -> str:
@@ -71,17 +136,34 @@ class GitHubCodeProvider:
     # ── Read tools (used in fix agent loop) ──────────────────────────────────
 
     def get_file(self, path: str, ref: str | None = None) -> str:
-        """Return the text content of a file at the given ref (default: default branch)."""
+        """Return file contents, resolving container-relative stack paths automatically."""
+        kwargs: dict = {}
+        if ref:
+            kwargs["ref"] = ref
         try:
-            kwargs: dict = {}
-            if ref:
-                kwargs["ref"] = ref
             content = self._repo.get_contents(path, **kwargs)
             if isinstance(content, list):
-                return f"(directory listing)\n" + "\n".join(c.path for c in content)
+                return "(directory listing)\n" + "\n".join(c.path for c in content)
             return content.decoded_content.decode("utf-8", errors="replace")
+        except Exception:
+            pass
+
+        # Exact path not found — resolve via git tree
+        resolved = _resolve_path(self._repo, path)
+        if resolved is None:
+            return f"(not found: '{path}' — no matching file in repo tree)"
+
+        log.debug("github.get_file_resolved", requested=path, resolved=resolved)
+        try:
+            content = self._repo.get_contents(resolved, **kwargs)
+            if isinstance(content, list):
+                return "(directory listing)\n" + "\n".join(c.path for c in content)
+            return (
+                f"# resolved '{path}' → '{resolved}'\n"
+                + content.decoded_content.decode("utf-8", errors="replace")
+            )
         except Exception as exc:
-            return f"(error reading {path}: {exc})"
+            return f"(error reading resolved path '{resolved}': {exc})"
 
     def search_code(self, query: str, max_results: int = 10) -> str:
         """Search the repo's code using GitHub code search."""
@@ -100,9 +182,20 @@ class GitHubCodeProvider:
             return f"(search error: {exc})"
 
     def get_commits(self, path: str = ".", n: int = 10) -> str:
-        """Return recent commits touching a path."""
+        """Return recent commits touching a path, resolving container-relative paths."""
+        resolved_path: str | None = path if path != "." else None
+
+        if resolved_path:
+            try:
+                self._repo.get_contents(resolved_path)
+            except Exception:
+                resolved = _resolve_path(self._repo, resolved_path)
+                if resolved:
+                    log.debug("github.get_commits_resolved", requested=path, resolved=resolved)
+                    resolved_path = resolved
+
         try:
-            commits = self._repo.get_commits(path=path if path != "." else None)
+            commits = self._repo.get_commits(path=resolved_path)
             lines: list[str] = []
             for c in list(commits)[:n]:
                 sha = c.sha[:8]
