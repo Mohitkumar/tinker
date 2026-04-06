@@ -76,19 +76,35 @@ def _init_langfuse() -> None:
     Reads from ~/.tinker/.env:
         LANGFUSE_PUBLIC_KEY=pk-lf-...
         LANGFUSE_SECRET_KEY=sk-lf-...
-        LANGFUSE_HOST=https://cloud.langfuse.com       # or LANGFUSE_BASE_URL
+        LANGFUSE_HOST=https://cloud.langfuse.com   # or LANGFUSE_BASE_URL
 
-    Must be called after the .env file has been loaded into os.environ.
-    Called once from server startup (lifespan) and from CLI entry points.
+    Langfuse is an optional dependency (install with: pip install 'tinker[langfuse]').
+    If not installed or incompatible with the current Python version, tracing is
+    silently skipped — the server starts normally.
+
+    Must be called after ~/.tinker/.env has been loaded into os.environ (i.e.
+    after toml_config.get() has run).
     """
     import os
-    # Normalise LANGFUSE_BASE_URL → LANGFUSE_HOST so LiteLLM can find it
-    if "LANGFUSE_HOST" not in os.environ and os.environ.get("LANGFUSE_BASE_URL"):
-        os.environ["LANGFUSE_HOST"] = os.environ["LANGFUSE_BASE_URL"]
 
     public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
     secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
     if not public_key or not secret_key:
+        return
+
+    # Normalise LANGFUSE_BASE_URL → LANGFUSE_HOST so LiteLLM can find it
+    if "LANGFUSE_HOST" not in os.environ and os.environ.get("LANGFUSE_BASE_URL"):
+        os.environ["LANGFUSE_HOST"] = os.environ["LANGFUSE_BASE_URL"]
+
+    try:
+        import importlib
+        importlib.import_module("langfuse")
+    except Exception as exc:
+        log.warning(
+            "langfuse.unavailable",
+            error=str(exc),
+            hint="Install with: pip install 'tinker[langfuse]' (requires Python <3.14)",
+        )
         return
 
     if "langfuse" not in litellm.success_callback:
