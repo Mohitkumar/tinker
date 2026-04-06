@@ -461,6 +461,94 @@ async def _watch_stop(watch_id) -> None:
     console.print(f"[green]Watch {watch_id} stopped.[/green]")
 
 
+# ── Profile commands ──────────────────────────────────────────────────────────
+
+profile_app = typer.Typer(help="Manage configuration profiles (cloud backends).")
+app.add_typer(profile_app, name="profile")
+
+
+@profile_app.command("list")
+def profile_list() -> None:
+    """[bold cyan]List all configured profiles.[/bold cyan]"""
+    from tinker import toml_config as tc
+    cfg = tc.get()
+    if not cfg.profiles:
+        console.print(
+            "[dim]No profiles configured. Run [bold]tinker init server[/bold] first, "
+            "or add a profile with [bold]tinker profile add[/bold].[/dim]"
+        )
+        return
+    table = Table(show_header=True, header_style="bold magenta", title="Profiles")
+    table.add_column("", width=2)
+    table.add_column("Name")
+    table.add_column("Backend", width=14)
+    table.add_column("Services", width=9, justify="right")
+    table.add_column("Notifiers", width=10, justify="right")
+    for name, p in cfg.profiles.items():
+        active_marker = "[bold green]●[/bold green]" if name == cfg.active_profile else "[dim]○[/dim]"
+        table.add_row(
+            active_marker, name, p.backend,
+            str(len(p.services)), str(len(p.notifiers)),
+        )
+    console.print(table)
+    console.print(
+        f"[dim]Active: [bold]{cfg.active_profile or next(iter(cfg.profiles))}[/bold]  "
+        "— change with [bold]tinker profile use <name>[/bold][/dim]"
+    )
+
+
+@profile_app.command("use")
+def profile_use(
+    name: str = typer.Argument(..., help="Profile name to activate"),
+) -> None:
+    """[bold cyan]Set the active profile.[/bold cyan]"""
+    from tinker import toml_config as tc
+    cfg = tc.get()
+    if name not in cfg.profiles:
+        names = ", ".join(cfg.profiles) or "none"
+        console.print(
+            f"[red]Profile '{name}' not found.[/red] "
+            f"Available: {names}"
+        )
+        raise typer.Exit(1)
+    _set_active_profile(name)
+    tc.reload()
+    console.print(f"[green]✓ Active profile:[/green] [bold]{name}[/bold]")
+
+
+@profile_app.command("add")
+def profile_add() -> None:
+    """[bold cyan]Add a new cloud profile interactively.[/bold cyan]"""
+    from tinker.interfaces.init_wizard import ServerWizard
+    ServerWizard().run_add_profile()
+
+
+def _set_active_profile(name: str) -> None:
+    """Overwrite the active_profile key in config.toml."""
+    import re
+    from pathlib import Path
+    toml_file = Path.home() / ".tinker" / "config.toml"
+    if not toml_file.exists():
+        console.print("[red]config.toml not found. Run [bold]tinker init server[/bold] first.[/red]")
+        raise typer.Exit(1)
+    text = toml_file.read_text(encoding="utf-8")
+    new_line = f'active_profile = "{name}"'
+    if re.search(r"^active_profile\s*=", text, re.MULTILINE):
+        text = re.sub(r"^active_profile\s*=.*$", new_line, text, flags=re.MULTILINE)
+    else:
+        # Insert after header comment block
+        lines = text.splitlines(keepends=True)
+        insert_at = 0
+        for i, line in enumerate(lines):
+            if line.startswith("#") or line.strip() == "":
+                insert_at = i + 1
+            else:
+                break
+        lines.insert(insert_at, f"{new_line}\n\n")
+        text = "".join(lines)
+    toml_file.write_text(text, encoding="utf-8")
+
+
 # ── Version ───────────────────────────────────────────────────────────────────
 
 @app.command()

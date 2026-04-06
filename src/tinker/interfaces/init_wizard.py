@@ -130,6 +130,7 @@ class ServerWizard:
         self._slack_channel = "#incidents"   # carries the channel picked in _step_slack
 
     def run(self) -> None:
+        """Full first-time setup wizard."""
         console.print(Panel.fit(
             "[bold cyan]Tinker Server Setup[/bold cyan]\n"
             "This wizard configures the server that runs in your cloud environment.\n\n"
@@ -139,13 +140,11 @@ class ServerWizard:
         console.print()
 
         try:
-            self._step_cloud()
             self._step_llm()
             self._step_slack()
-            self._step_notifiers()
             self._step_github()
             self._step_api_key()
-            self._step_services()
+            self._step_profiles()
             self._write_env()
             self._write_toml()
             self._show_next_steps()
@@ -153,88 +152,167 @@ class ServerWizard:
             console.print("\n[yellow]Setup cancelled.[/yellow]")
             sys.exit(0)
 
+    def run_add_profile(self) -> None:
+        """Add a single profile to an existing config (used by 'tinker profile add')."""
+        # Load existing config into self._toml so we can append and re-write
+        try:
+            import tomllib as _tomllib  # Python 3.11+
+        except ImportError:
+            try:
+                import tomli as _tomllib  # type: ignore[no-redef]
+            except ImportError:
+                console.print("[red]Install tomli or use Python 3.11+ to modify config.toml.[/red]")
+                sys.exit(1)
+
+        if self.toml_file.exists():
+            raw = _tomllib.loads(self.toml_file.read_text(encoding="utf-8"))
+            # Reconstruct _toml dict from existing file
+            for key in ("llm", "slack", "github", "auth", "server"):
+                if key in raw:
+                    self._toml[key] = raw[key]
+            self._toml["profiles"] = raw.get("profiles", {})
+            if "active_profile" in raw:
+                self._toml["active_profile"] = raw["active_profile"]
+            # Load any existing env vars so secrets aren't lost
+            if self.env_file.exists():
+                for line in self.env_file.read_text().splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, _, v = line.partition("=")
+                        self._env[k.strip()] = v.strip().strip("'\"")
+
+        try:
+            self._step_one_profile()
+            self._write_env()
+            self._write_toml()
+            console.print("[green]✓ Profile added.[/green]")
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            sys.exit(0)
+
     # ── Steps ─────────────────────────────────────────────────────────────────
 
-    def _step_cloud(self) -> None:
-        console.print(Rule("[bold]Step 1 — Cloud / Observability Backend[/bold]"))
-
-        # Try auto-detection first
-        detected = _detect_cloud()
-        if detected:
-            console.print(f"[green]Auto-detected:[/green] [bold]{detected['label']}[/bold]")
-            use_detected = _ask_yes_no(f"Use {detected['label']}?", default=True)
-            if use_detected:
-                backend = detected["backend"]
-                cloud = detected["cloud"]
-                self._backend_type = backend
-                self._configure_cloud(cloud)
-                return
-
-        # Manual selection
+    def _step_profiles(self) -> None:
         console.print()
-        for i, (label, backend, cloud) in enumerate(CLOUD_CHOICES, 1):
+        console.print(Rule("[bold]Step 5 — Profiles (Cloud / Observability Backends)[/bold]"))
+        console.print()
+        console.print(
+            "[dim]A profile bundles a cloud backend with its services and alert notifiers.\n"
+            "Configure one profile per cloud account. You can add more profiles later\n"
+            "with [bold]tinker profile add[/bold].[/dim]"
+        )
+        self._step_one_profile(first=True)
+        while _ask_yes_no("\nAdd another profile?", default=False):
+            self._step_one_profile(first=False)
+
+    def _step_one_profile(self, first: bool = True) -> None:
+        """Collect config for a single profile and append it to self._toml['profiles']."""
+        console.print()
+        profiles: dict = self._toml.setdefault("profiles", {})  # type: ignore[assignment]
+
+        # ── Profile name ──────────────────────────────────────────────────────
+        default_name = "default" if first and not profiles else ""
+        hint = f" [{default_name}]" if default_name else ""
+        while True:
+            name = input(f"Profile name{hint}: ").strip() or default_name
+            if not name:
+                console.print("[red]Name required.[/red]")
+                continue
+            if name in profiles:
+                console.print(f"[yellow]Profile '{name}' already exists — choose a different name.[/yellow]")
+                continue
+            break
+
+        # ── Backend ───────────────────────────────────────────────────────────
+        console.print()
+        detected = _detect_cloud()
+        if detected and first:
+            console.print(f"[green]Auto-detected:[/green] [bold]{detected['label']}[/bold]")
+            if _ask_yes_no(f"Use {detected['label']} for profile '{name}'?", default=True):
+                backend_opts = self._collect_cloud(detected["cloud"])
+                backend_opts["backend"] = detected["backend"]
+            else:
+                backend_opts = self._pick_cloud()
+        else:
+            backend_opts = self._pick_cloud()
+
+        # ── Notifiers ─────────────────────────────────────────────────────────
+        notifiers = self._collect_notifiers_for_profile(name)
+
+        # ── Services ──────────────────────────────────────────────────────────
+        services = self._collect_services_for_profile()
+
+        # Assemble the profile dict (backend key + options + nested tables)
+        profile: dict = {k: v for k, v in backend_opts.items()}
+        if notifiers:
+            profile["notifiers"] = notifiers
+        if services:
+            profile["services"] = services
+        profiles[name] = profile
+
+        # First profile becomes the active one if none set yet
+        if "active_profile" not in self._toml:
+            self._toml["active_profile"] = name
+            console.print(f"[green]✓[/green] Profile [bold]{name}[/bold] created and set as active.")
+        else:
+            console.print(f"[green]✓[/green] Profile [bold]{name}[/bold] created.")
+
+    # ── Backend collectors (return a dict, no side-effects on self._toml) ─────
+
+    def _pick_cloud(self) -> dict:
+        console.print()
+        for i, (label, _, _) in enumerate(CLOUD_CHOICES, 1):
             console.print(f"  [{i}] {label}")
         console.print()
-
         while True:
             raw = input("Select cloud [1]: ").strip() or "1"
             try:
                 idx = int(raw) - 1
-                label, backend, cloud = CLOUD_CHOICES[idx]
+                _, backend, cloud = CLOUD_CHOICES[idx]
                 break
             except (ValueError, IndexError):
                 console.print("[red]Invalid choice.[/red]")
+        opts = self._collect_cloud(cloud)
+        opts["backend"] = backend
+        return opts
 
-        self._backend_type = backend
-        self._configure_cloud(cloud)
-
-    def _configure_cloud(self, cloud: str) -> None:
+    def _collect_cloud(self, cloud: str) -> dict:
+        """Prompt for cloud-specific settings. Returns options dict (no 'backend' key)."""
         console.print()
         if cloud == "aws":
-            self._check_aws_permissions()
+            return self._collect_aws()
         elif cloud == "gcp":
-            self._check_gcp_permissions()
+            return self._collect_gcp()
         elif cloud == "azure":
-            self._check_azure_permissions()
+            return self._collect_azure()
         elif cloud == "grafana":
-            self._configure_grafana()
+            return self._collect_grafana()
         elif cloud == "datadog":
-            self._configure_datadog()
+            return self._collect_datadog()
         elif cloud == "elastic":
-            self._configure_elastic()
+            return self._collect_elastic()
+        return {}
 
-    def _check_aws_permissions(self) -> None:
+    def _collect_aws(self) -> dict:
         console.print("[dim]Checking AWS CloudWatch permissions...[/dim]")
         try:
             import boto3
-            client = boto3.client("logs")
-            client.describe_log_groups(limit=1)
+            boto3.client("logs").describe_log_groups(limit=1)
             console.print("[green]✓ CloudWatch Logs read access confirmed.[/green]")
         except Exception as exc:
             msg = str(exc)
             if "credential" in msg.lower() or "NoCredentials" in str(type(exc)):
                 console.print("[yellow]✗ No AWS credentials found.[/yellow]")
-                console.print(
-                    "[dim]Attach an IAM role to this instance with the following policy:[/dim]"
-                )
+                console.print("[dim]Attach an IAM role to this instance with the following policy:[/dim]")
                 console.print(Syntax(AWS_POLICY, "json", theme="monokai"))
             else:
                 console.print(f"[yellow]! CloudWatch check: {msg[:80]}[/yellow]")
-                console.print(
-                    "[dim]If this is a permissions error, attach the policy above "
-                    "to your IAM role.[/dim]"
-                )
-
         region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or ""
         if not region:
             region = input("AWS region [us-east-1]: ").strip() or "us-east-1"
-        # Structural config → TOML; credentials come from IAM role (no secret needed)
-        self._toml.setdefault("backends", {})["default"] = {  # type: ignore[index]
-            "type": "cloudwatch",
-            "region": region,
-        }
+        return {"region": region}
 
-    def _check_gcp_permissions(self) -> None:
+    def _collect_gcp(self) -> dict:
         console.print("[dim]Checking GCP Cloud Logging permissions...[/dim]")
         try:
             from google.cloud import logging as gcp_logging
@@ -244,83 +322,66 @@ class ServerWizard:
             console.print(f"[yellow]! GCP check: {str(exc)[:80]}[/yellow]")
             console.print("[dim]Required IAM roles:[/dim]")
             console.print(Syntax(GCP_IAM_COMMANDS, "bash", theme="monokai"))
-
         project = os.environ.get("GOOGLE_CLOUD_PROJECT") or ""
         if not project:
             project = input("GCP project ID: ").strip()
-        backend: dict[str, str] = {"type": "gcp"}
+        opts: dict[str, str] = {}
         if project:
-            backend["project_id"] = project
-        self._toml.setdefault("backends", {})["default"] = backend  # type: ignore[index]
+            opts["project_id"] = project
+        return opts
 
-    def _check_azure_permissions(self) -> None:
+    def _collect_azure(self) -> dict:
         console.print("[dim]Checking Azure Monitor permissions...[/dim]")
         workspace_id = os.environ.get("AZURE_WORKSPACE_ID") or ""
         if not workspace_id:
             workspace_id = input("Log Analytics workspace ID: ").strip()
         subscription_id = input("Azure subscription ID (optional): ").strip()
         resource_group = input("Azure resource group (optional): ").strip()
-
-        backend: dict[str, str] = {"type": "azure"}
+        opts: dict[str, str] = {}
         if workspace_id:
-            backend["workspace_id"] = workspace_id
+            opts["workspace_id"] = workspace_id
         if subscription_id:
-            backend["subscription_id"] = subscription_id
+            opts["subscription_id"] = subscription_id
         if resource_group:
-            backend["resource_group"] = resource_group
-        self._toml.setdefault("backends", {})["default"] = backend  # type: ignore[index]
-
+            opts["resource_group"] = resource_group
         try:
             from azure.identity import DefaultAzureCredential
             from azure.monitor.query import LogsQueryClient
             from datetime import timedelta
-            cred = DefaultAzureCredential()
-            qc = LogsQueryClient(cred)
-            qc.query_workspace(
-                workspace_id,
-                "AzureDiagnostics | take 1",
-                timespan=timedelta(minutes=5),
-            )
+            qc = LogsQueryClient(DefaultAzureCredential())
+            qc.query_workspace(workspace_id, "AzureDiagnostics | take 1", timespan=timedelta(minutes=5))
             console.print("[green]✓ Log Analytics read access confirmed.[/green]")
         except Exception as exc:
             console.print(f"[yellow]! Azure check: {str(exc)[:80]}[/yellow]")
             console.print("[dim]Required role assignments:[/dim]")
             console.print(Syntax(AZURE_IAM_COMMANDS, "bash", theme="monokai"))
+        return opts
 
-    def _configure_grafana(self) -> None:
+    def _collect_grafana(self) -> dict:
         loki = input("Loki URL [http://localhost:3100]: ").strip() or "http://localhost:3100"
         prom = input("Prometheus URL [http://localhost:9090]: ").strip() or "http://localhost:9090"
         tempo = input("Tempo URL (optional): ").strip()
         api_key = input("Grafana API key (leave blank for no auth): ").strip()
         user = input("Basic auth user (leave blank if not used): ").strip()
         password = input("Basic auth password (leave blank if not used): ").strip() if user else ""
-
         console.print()
         console.print("[dim]Loki service label — the stream selector label your log shipper sets for the service name.[/dim]")
         console.print("[dim]Common values: service (Promtail default), app (Helm charts), job, service_name, container[/dim]")
         svc_label = input("Service label [service]: ").strip() or "service"
-
-        # Structural config → TOML; secrets → .env via env: references
-        backend: dict[str, str] = {
-            "type": "grafana",
-            "loki_url": loki,
-            "prometheus_url": prom,
-            "service_label": svc_label,
-        }
+        opts: dict[str, str] = {"loki_url": loki, "prometheus_url": prom, "service_label": svc_label}
         if tempo:
-            backend["tempo_url"] = tempo
+            opts["tempo_url"] = tempo
         if api_key:
             self._env["GRAFANA_API_KEY"] = api_key
-            backend["api_key"] = "env:GRAFANA_API_KEY"
+            opts["api_key"] = "env:GRAFANA_API_KEY"
         elif user and password:
             self._env["GRAFANA_USER"] = user
             self._env["GRAFANA_PASSWORD"] = password
-            backend["user"] = "env:GRAFANA_USER"
-            backend["password"] = "env:GRAFANA_PASSWORD"
+            opts["user"] = "env:GRAFANA_USER"
+            opts["password"] = "env:GRAFANA_PASSWORD"
+        return opts
 
-        self._toml.setdefault("backends", {})["default"] = backend  # type: ignore[index]
-
-    def _configure_datadog(self) -> None:
+    def _collect_datadog(self) -> dict:
         api_key = input("Datadog API key: ").strip()
         app_key = input("Datadog App key: ").strip()
         site = input("Datadog site [datadoghq.com]: ").strip() or "datadoghq.com"
@@ -328,25 +389,24 @@ class ServerWizard:
             self._env["DATADOG_API_KEY"] = api_key
         if app_key:
             self._env["DATADOG_APP_KEY"] = app_key
-        self._toml.setdefault("backends", {})["default"] = {  # type: ignore[index]
-            "type": "datadog",
+        return {
             "site": site,
             "api_key": "env:DATADOG_API_KEY",
             "app_key": "env:DATADOG_APP_KEY",
         }
 
-    def _configure_elastic(self) -> None:
+    def _collect_elastic(self) -> dict:
         url = input("Elasticsearch URL [http://localhost:9200]: ").strip() or "http://localhost:9200"
         api_key = input("Elasticsearch API key (leave blank for no auth): ").strip()
-        backend: dict[str, str] = {"type": "elastic", "url": url}
+        opts: dict[str, str] = {"url": url}
         if api_key:
             self._env["ELASTICSEARCH_API_KEY"] = api_key
-            backend["api_key"] = "env:ELASTICSEARCH_API_KEY"
-        self._toml.setdefault("backends", {})["default"] = backend  # type: ignore[index]
+            opts["api_key"] = "env:ELASTICSEARCH_API_KEY"
+        return opts
 
     def _step_llm(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 2 — LLM Provider & Model[/bold]"))
+        console.print(Rule("[bold]Step 1 — LLM Provider & Model[/bold]"))
 
         # ── Provider ──────────────────────────────────────────────────────────
         console.print()
@@ -411,7 +471,7 @@ class ServerWizard:
 
     def _step_slack(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 3 — Slack (optional)[/bold]"))
+        console.print(Rule("[bold]Step 2 — Slack (optional)[/bold]"))
         console.print()
 
         if not _ask_yes_no("Set up Slack alerts?", default=False):
@@ -442,21 +502,16 @@ class ServerWizard:
         except Exception as exc:
             console.print(f"[yellow]! Slack test failed: {str(exc)[:60]}[/yellow]")
 
-    def _step_notifiers(self) -> None:
+    def _collect_notifiers_for_profile(self, profile_name: str) -> dict:
+        """Collect notifiers for one profile. Returns a notifiers dict."""
         console.print()
-        console.print(Rule("[bold]Step 4 — Alert Notifiers[/bold]"))
-        console.print()
-        console.print(
-            "[dim]Notifiers deliver watch alerts (from [bold]tinker watch start[/bold]) "
-            "to Slack, Discord, or custom webhooks.\n"
-            "Each notifier is named and referenced when creating a watch.\n"
-            "Configure multiple to route different services to different channels.[/dim]"
-        )
+        console.print(f"[dim]Notifiers for profile [bold]{profile_name}[/bold] — "
+                      "deliver watch alerts to Slack, Discord, or webhooks.[/dim]")
         console.print()
 
         notifiers: dict[str, dict] = {}
 
-        # Auto-create default Slack notifier from _step_slack if configured
+        # Auto-create default Slack notifier if Slack was configured globally
         if self._slack_configured:
             notifiers["default"] = {
                 "type": "slack",
@@ -464,21 +519,19 @@ class ServerWizard:
                 "channel": self._slack_channel,
             }
             console.print(
-                f"[green]✓[/green] Default notifier: [bold]Slack[/bold] → [dim]{self._slack_channel}[/dim] "
-                "(from Step 3)"
+                f"[green]✓[/green] Default notifier: [bold]Slack[/bold] → "
+                f"[dim]{self._slack_channel}[/dim] (from Step 2)"
             )
         else:
             console.print("[dim]No Slack configured — you can add a notifier manually here.[/dim]")
 
-        if not _ask_yes_no("Add more notifiers?", default=False):
-            if notifiers:
-                self._toml["notifiers"] = notifiers
-            return
+        if not _ask_yes_no("Add notifiers for this profile?", default=False):
+            return notifiers
 
         NOTIFIER_TYPES = [
-            ("Slack channel",          "slack"),
-            ("Discord webhook",        "discord"),
-            ("Generic HTTP webhook",   "webhook"),
+            ("Slack channel",        "slack"),
+            ("Discord webhook",      "discord"),
+            ("Generic HTTP webhook", "webhook"),
         ]
 
         while True:
@@ -497,12 +550,12 @@ class ServerWizard:
                 console.print("  [red]Invalid choice.[/red]")
                 continue
 
-            name = input("  Notifier name (e.g. discord-ops, pagerduty): ").strip()
-            if not name:
+            notifier_name = input("  Notifier name (e.g. discord-ops, pagerduty): ").strip()
+            if not notifier_name:
                 console.print("  [yellow]! Name required — skipping.[/yellow]")
                 continue
-            if name in notifiers:
-                console.print(f"  [yellow]! '{name}' already exists — skipping.[/yellow]")
+            if notifier_name in notifiers:
+                console.print(f"  [yellow]! '{notifier_name}' already exists — skipping.[/yellow]")
                 continue
 
             if ntype == "slack":
@@ -510,47 +563,96 @@ class ServerWizard:
                 channel = input("  Channel [#incidents]: ").strip() or "#incidents"
                 entry: dict[str, str] = {"type": "slack", "channel": channel}
                 if token:
-                    env_var = f"SLACK_BOT_TOKEN_{name.upper().replace('-', '_')}"
+                    env_var = f"SLACK_BOT_TOKEN_{notifier_name.upper().replace('-', '_')}"
                     self._env[env_var] = token
                     entry["bot_token"] = f"env:{env_var}"
                 else:
                     entry["bot_token"] = "env:SLACK_BOT_TOKEN"
-                notifiers[name] = entry
+                notifiers[notifier_name] = entry
 
             elif ntype == "discord":
                 webhook_url = input("  Discord webhook URL: ").strip()
                 if not webhook_url:
                     console.print("  [yellow]! URL required — skipping.[/yellow]")
                     continue
-                env_var = f"DISCORD_WEBHOOK_{name.upper().replace('-', '_')}"
+                env_var = f"DISCORD_WEBHOOK_{notifier_name.upper().replace('-', '_')}"
                 self._env[env_var] = webhook_url
-                notifiers[name] = {"type": "discord", "webhook_url": f"env:{env_var}"}
+                notifiers[notifier_name] = {"type": "discord", "webhook_url": f"env:{env_var}"}
 
             elif ntype == "webhook":
                 url = input("  Webhook URL: ").strip()
                 if not url:
                     console.print("  [yellow]! URL required — skipping.[/yellow]")
                     continue
-                env_var = f"WEBHOOK_{name.upper().replace('-', '_')}_URL"
+                env_var = f"WEBHOOK_{notifier_name.upper().replace('-', '_')}_URL"
                 self._env[env_var] = url
                 entry = {"type": "webhook", "url": f"env:{env_var}"}
                 auth_header = input("  Authorization header value (leave blank if none): ").strip()
                 if auth_header:
-                    auth_var = f"WEBHOOK_{name.upper().replace('-', '_')}_AUTH"
+                    auth_var = f"WEBHOOK_{notifier_name.upper().replace('-', '_')}_AUTH"
                     self._env[auth_var] = auth_header
                     entry["header_Authorization"] = f"env:{auth_var}"
-                notifiers[name] = entry
+                notifiers[notifier_name] = entry
 
-            console.print(f"  [green]✓[/green] Added notifier: [bold]{name}[/bold] ({ntype_label})")
+            console.print(f"  [green]✓[/green] Added notifier: [bold]{notifier_name}[/bold] ({ntype_label})")
 
         if notifiers:
-            self._toml["notifiers"] = notifiers
-            console.print()
-            console.print(f"[green]✓[/green] {len(notifiers)} notifier(s) configured: {', '.join(notifiers)}")
+            console.print(f"[green]✓[/green] {len(notifiers)} notifier(s): {', '.join(notifiers)}")
+        return notifiers
+
+    def _collect_services_for_profile(self) -> dict:
+        """Collect per-service config for one profile. Returns a services dict."""
+        console.print()
+        FORMAT_CHOICES = ["label", "json", "logfmt", "pattern"]
+        services: dict[str, dict] = {}
+
+        if not _ask_yes_no("Add per-service config for this profile?", default=False):
+            return services
+
+        console.print(
+            "[dim]Configure per-service log format and repo mappings.\n"
+            "Example: payments-api → repo=acme/payments, format=json[/dim]"
+        )
+        while True:
+            svc = input("  Service name (or Enter to finish): ").strip()
+            if not svc:
+                break
+
+            repo = input(f"  GitHub repo for {svc} (owner/repo, optional): ").strip()
+            resource_type = input(f"  Resource type (ecs/lambda/eks/cloudrun, optional): ").strip()
+
+            console.print("  Log formats:")
+            hints = {
+                "label": "level is a stream label (fastest)",
+                "json":  '{"level":"error","msg":"..."}',
+                "logfmt": "level=error msg=...",
+                "pattern": "2026-01-01 ERROR SomeClass: ...",
+            }
+            for i, fmt in enumerate(FORMAT_CHOICES, 1):
+                console.print(f"    [{i}] {fmt:<8}  [dim]{hints[fmt]}[/dim]")
+            while True:
+                raw = input("  Select format [1]: ").strip() or "1"
+                try:
+                    fmt = FORMAT_CHOICES[int(raw) - 1]
+                    break
+                except (ValueError, IndexError):
+                    console.print("  [red]Invalid choice.[/red]")
+
+            level_field = input("  Level field name [level]: ").strip() or "level"
+
+            entry: dict[str, str] = {"log_format": fmt, "log_level_field": level_field}
+            if repo:
+                entry["repo"] = repo
+            if resource_type:
+                entry["resource_type"] = resource_type
+            services[svc] = entry
+            console.print(f"  [green]✓[/green] {svc}: format={fmt}" + (f", repo={repo}" if repo else ""))
+
+        return services
 
     def _step_github(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 5 — GitHub (for code investigation and auto-PRs)[/bold]"))
+        console.print(Rule("[bold]Step 3 — GitHub (for code investigation and auto-PRs)[/bold]"))
         console.print()
         console.print(
             "[dim]Tinker uses GitHub to read code (stack trace files, search, commits)\n"
@@ -591,27 +693,13 @@ class ServerWizard:
             github_section["default_repo"] = default_repo
         self._toml["github"] = github_section
 
-        # Service-specific repos are stored under [services.*].repo in TOML;
-        # prompt here so the user doesn't need to hand-edit the file.
-        console.print()
         console.print(
-            "[dim]If different services live in different repos, add per-service mappings.\n"
-            "Example: payments-api → acme/payments, auth-service → acme/auth[/dim]"
+            "[dim]Per-service repo mappings can be added per profile in Step 5.[/dim]"
         )
-        if _ask_yes_no("Add service-specific repo mappings?", default=False):
-            services: dict[str, dict] = self._toml.setdefault("services", {})  # type: ignore[assignment]
-            while True:
-                svc = input("  Service name (or Enter to finish): ").strip()
-                if not svc:
-                    break
-                repo = input(f"  Repo for {svc} (owner/repo): ").strip()
-                if repo:
-                    services.setdefault(svc, {})["repo"] = repo
-                    console.print(f"  [green]✓[/green] {svc} → {repo}")
 
     def _step_api_key(self) -> None:
         console.print()
-        console.print(Rule("[bold]Step 6 — Server API Key[/bold]"))
+        console.print(Rule("[bold]Step 4 — Server API Key[/bold]"))
         console.print()
         console.print(
             "The CLI authenticates to this server with an API key.\n"
@@ -635,50 +723,6 @@ class ServerWizard:
             "[dim]Store it somewhere safe — it won't be shown again.[/dim]",
             border_style="yellow",
         ))
-
-    def _step_services(self) -> None:
-        console.print()
-        console.print(Rule("[bold]Step 7 — Per-service config (optional)[/bold]"))
-        console.print()
-        console.print(
-            "[dim]Configure per-service log format so Tinker can query level correctly\n"
-            "across JSON, logfmt, and log4j log styles.[/dim]"
-        )
-        console.print()
-
-        if not _ask_yes_no("Add per-service log format config?", default=False):
-            return
-
-        FORMAT_CHOICES = ["label", "json", "logfmt", "pattern"]
-        services: dict[str, dict] = self._toml.setdefault("services", {})  # type: ignore[assignment]
-
-        while True:
-            svc = input("  Service name (or Enter to finish): ").strip()
-            if not svc:
-                break
-
-            console.print("  Log formats:")
-            for i, fmt in enumerate(FORMAT_CHOICES, 1):
-                hints = {
-                    "label": "level is a Loki stream label (fastest)",
-                    "json":  '{"level":"error","msg":"..."}',
-                    "logfmt": "level=error msg=...",
-                    "pattern": "2026-01-01 ERROR SomeClass: ...",
-                }
-                console.print(f"    [{i}] {fmt:<8}  [dim]{hints[fmt]}[/dim]")
-
-            while True:
-                raw = input("  Select format [1]: ").strip() or "1"
-                try:
-                    fmt = FORMAT_CHOICES[int(raw) - 1]
-                    break
-                except (ValueError, IndexError):
-                    console.print("  [red]Invalid choice.[/red]")
-
-            level_field = input("  Level field name [level]: ").strip() or "level"
-
-            services.setdefault(svc, {}).update({"log_format": fmt, "log_level_field": level_field})
-            console.print(f"  [green]✓[/green] {svc}: format={fmt}, level_field={level_field}")
 
     def _write_env(self) -> None:
         """Write secrets-only .env file."""
@@ -711,7 +755,7 @@ class ServerWizard:
 
         lines: list[str] = [
             "# Tinker server configuration",
-            "# Generated by `tinker init server`",
+            "# Generated by `tinker init server` / `tinker profile add`",
             "# Secrets are in ~/.tinker/.env — reference them here as env:VAR_NAME",
             "",
         ]
@@ -730,12 +774,10 @@ class ServerWizard:
                     lines.append(f"{k} = {_val(v)}")
             lines.append("")
 
-        def _write_array_of_tables(key: str, items: list) -> None:
-            for item in items:
-                lines.append(f"[[{key}]]")
-                for k, v in item.items():
-                    lines.append(f"{k} = {_val(v)}")
-                lines.append("")
+        # active_profile
+        if active := self._toml.get("active_profile"):
+            lines.append(f'active_profile = "{active}"')
+            lines.append("")
 
         # [server]
         lines += ["[server]", 'host = "0.0.0.0"', "port = 8000", ""]
@@ -757,27 +799,6 @@ class ServerWizard:
                 )
             lines.append("")
 
-        # [backends.*]
-        for name, backend in (self._toml.get("backends") or {}).items():  # type: ignore[union-attr]
-            lines.append(f"[backends.{name}]")
-            for k, v in backend.items():  # type: ignore[union-attr]
-                lines.append(f"{k} = {_val(v)}")
-            lines.append("")
-
-        # [notifiers.*]
-        for name, notifier in (self._toml.get("notifiers") or {}).items():  # type: ignore[union-attr]
-            lines.append(f"[notifiers.{name}]")
-            for k, v in notifier.items():  # type: ignore[union-attr]
-                lines.append(f"{k} = {_val(v)}")
-            lines.append("")
-
-        # [services.*]
-        for name, svc in (self._toml.get("services") or {}).items():  # type: ignore[union-attr]
-            lines.append(f"[services.{name}]")
-            for k, v in svc.items():  # type: ignore[union-attr]
-                lines.append(f"{k} = {_val(v)}")
-            lines.append("")
-
         # [slack]
         if slack := self._toml.get("slack"):
             _write_section("slack", slack)  # type: ignore[arg-type]
@@ -785,6 +806,26 @@ class ServerWizard:
         # [github]
         if github := self._toml.get("github"):
             _write_section("github", github)  # type: ignore[arg-type]
+
+        # [profiles.*]  — each profile's scalar keys, then nested notifiers + services
+        for pname, profile in (self._toml.get("profiles") or {}).items():  # type: ignore[union-attr]
+            lines.append(f"[profiles.{pname}]")
+            for k, v in profile.items():  # type: ignore[union-attr]
+                if not isinstance(v, dict):
+                    lines.append(f"{k} = {_val(v)}")
+            lines.append("")
+
+            for nname, notifier in (profile.get("notifiers") or {}).items():  # type: ignore[union-attr]
+                lines.append(f"[profiles.{pname}.notifiers.{nname}]")
+                for k, v in notifier.items():
+                    lines.append(f"{k} = {_val(v)}")
+                lines.append("")
+
+            for sname, svc in (profile.get("services") or {}).items():  # type: ignore[union-attr]
+                lines.append(f"[profiles.{pname}.services.{sname}]")
+                for k, v in svc.items():
+                    lines.append(f"{k} = {_val(v)}")
+                lines.append("")
 
         self.toml_file.parent.mkdir(parents=True, exist_ok=True)
         self.toml_file.write_text("\n".join(lines) + "\n")
@@ -794,15 +835,16 @@ class ServerWizard:
         console.print()
         console.print(Panel(
             "[bold]Setup complete![/bold]\n\n"
-            f"Config: [dim]{self.toml_file}[/dim]\n"
+            f"Config:  [dim]{self.toml_file}[/dim]\n"
             f"Secrets: [dim]{self.env_file}[/dim]\n\n"
-            "To add more services or backends, edit [bold]~/.tinker/config.toml[/bold] directly.\n\n"
+            "Profile commands:\n\n"
+            "  [bold cyan]tinker profile list[/bold cyan]          — show all profiles\n"
+            "  [bold cyan]tinker profile use <name>[/bold cyan]    — switch active profile\n"
+            "  [bold cyan]tinker profile add[/bold cyan]           — add a new cloud profile\n\n"
             "Start the server:\n\n"
-            f"  [bold cyan]tinker server[/bold cyan]\n\n"
-            "Or with a custom port:\n\n"
-            f"  [bold cyan]tinker server --port 9000[/bold cyan]\n\n"
+            "  [bold cyan]tinker server[/bold cyan]\n\n"
             "Then on each developer laptop:\n\n"
-            f"  [bold cyan]tinker init cli[/bold cyan]",
+            "  [bold cyan]tinker init cli[/bold cyan]",
             border_style="green",
         ))
 

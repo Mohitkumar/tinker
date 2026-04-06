@@ -23,8 +23,9 @@ async def _lifespan(app: FastAPI):
 
     registry = NotifierRegistry()
     cfg = tc.get()
-    if cfg.notifiers:
-        registry.build_from_toml(cfg.notifiers)
+    notifiers = cfg.get_notifiers()
+    if notifiers:
+        registry.build_from_toml(notifiers)
         log.info("notifiers.loaded", count=len(registry))
     else:
         log.info("notifiers.none_configured — watches will fall back to legacy Slack settings")
@@ -103,15 +104,21 @@ def create_app() -> FastAPI:
         from tinker.config import settings
         from tinker import toml_config as tc
         cfg = tc.get()
-        if cfg.backends:
+        if cfg.profiles:
+            backends_info = {name: p.backend for name, p in cfg.profiles.items()}
+            active = cfg.active_profile or next(iter(cfg.profiles))
+        elif cfg.backends:
             backends_info = {name: b.type for name, b in cfg.backends.items()}
+            active = next(iter(cfg.backends))
         else:
             backends_info = {"default": settings.tinker_backend}
+            active = settings.tinker_backend
         return {
             "status": "ok",
             "version": __version__,
-            "backend": settings.tinker_backend,   # kept for CLI compat
+            "backend": active,
             "backends": backends_info,
+            "active_profile": cfg.active_profile,
         }
 
     return app
@@ -123,9 +130,10 @@ def main() -> None:
     from tinker import toml_config as tc
 
     toml = tc.get()
-    host = toml.server.host if toml.backends else settings.tinker_server_host
-    port = toml.server.port if toml.backends else settings.tinker_server_port
-    log_level = toml.server.log_level if toml.backends else settings.log_level.lower()
+    has_config = bool(toml.profiles or toml.backends)
+    host = toml.server.host if has_config else settings.tinker_server_host
+    port = toml.server.port if has_config else settings.tinker_server_port
+    log_level = toml.server.log_level if has_config else settings.log_level.lower()
 
     uvicorn.run(
         "tinker.server.app:create_app",
