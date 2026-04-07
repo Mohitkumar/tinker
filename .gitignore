@@ -68,6 +68,7 @@ tests/fixtures/cassettes/*.yaml
 # ── Node.js ───────────────────────────────────────────────────────────────────
 docs/node_modules/
 docs/build/
+docs/.docusaurus/
 
 # ── Logs & tmp ────────────────────────────────────────────────────────────────
 *.log

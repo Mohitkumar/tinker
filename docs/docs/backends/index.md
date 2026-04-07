@@ -11,13 +11,13 @@ Tinker works with every major cloud observability stack and popular self-hosted 
 
 | Backend | `TINKER_BACKEND` | Logs | Metrics | Traces | Auth |
 |---|---|---|---|---|---|
-| [AWS CloudWatch](cloudwatch) | `cloudwatch` | CloudWatch Logs Insights | GetMetricData | X-Ray | IAM Role |
-| [Google Cloud](gcp) | `gcp` | Cloud Logging | Cloud Monitoring | Cloud Trace | Workload Identity |
-| [Azure Monitor](azure) | `azure` | Log Analytics (KQL) | Azure Monitor Metrics | App Insights | Managed Identity |
-| [Grafana Stack](grafana) | `grafana` | Loki (LogQL) | Prometheus (PromQL) | Tempo | API key |
-| [Datadog](datadog) | `datadog` | Logs API v2 | Metrics API v1 | APM | API key + App key |
-| [Elastic](elastic) | `elastic` | Elasticsearch DSL | Aggregations | Elastic APM | API key |
-| [OpenTelemetry](otel) | `otel` | OpenSearch | Prometheus | OTel Collector → OpenSearch | API key |
+| [AWS CloudWatch](./cloudwatch.md) | `cloudwatch` | CloudWatch Logs Insights | GetMetricData | X-Ray | IAM Role |
+| [Google Cloud](./gcp.md) | `gcp` | Cloud Logging | Cloud Monitoring | Cloud Trace | Workload Identity |
+| [Azure Monitor](./azure.md) | `azure` | Log Analytics (KQL) | Azure Monitor Metrics | App Insights | Managed Identity |
+| [Grafana Stack](./grafana.md) | `grafana` | Loki (LogQL) | Prometheus (PromQL) | Tempo | API key |
+| [Datadog](./datadog.md) | `datadog` | Logs API v2 | Metrics API v1 | APM | API key + App key |
+| [Elastic](./elastic.md) | `elastic` | Elasticsearch DSL | Aggregations | Elastic APM | API key |
+| [OpenTelemetry](./otel.md) | `otel` | OpenSearch | Prometheus | OTel Collector → OpenSearch | API key |
 
 ---
 
@@ -27,7 +27,7 @@ Tinker works with every major cloud observability stack and popular self-hosted 
 
 `TINKER_BACKEND` is read once at startup. The backend is selected, credentials are resolved from the cloud identity mechanism (IAM role, Workload Identity, Managed Identity), and the server starts.
 
-For multi-cloud environments, deploy one Tinker instance per cloud account/project and use [profiles](../commands/profile) to route CLI requests to the right instance.
+For multi-cloud environments, deploy one Tinker instance per cloud account/project and use [profiles](../commands/profile.md) to route CLI requests to the right instance.
 
 ### Credential model
 

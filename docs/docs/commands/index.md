@@ -27,19 +27,19 @@ tinker [global-options] <command> [command-options]
 
 | Command | Purpose |
 |---|---|
-| [`tinker logs`](logs) | Fetch recent log lines from a service |
-| [`tinker tail`](tail) | Stream live logs to the terminal |
-| [`tinker metrics`](metrics) | Query metric time series |
-| [`tinker anomaly`](anomaly) | Detect anomalies across all metrics |
-| [`tinker trace`](trace) | Retrieve distributed traces |
-| [`tinker diff`](diff) | Compare two time windows side-by-side |
-| [`tinker investigate`](investigate) | Interactive RCA REPL |
-| [`tinker rca`](rca) | Streaming AI root-cause analysis |
-| [`tinker slo`](slo) | Compute SLO availability and error budget |
-| [`tinker watch`](watch) | Manage continuous background monitoring |
-| [`tinker alert`](alert) | Manage threshold-based alert rules |
-| [`tinker deploy`](deploy) | List deploys and correlate with anomalies |
-| [`tinker profile`](profile) | Manage named profiles |
+| [`tinker logs`](./logs.md) | Fetch recent log lines from a service |
+| [`tinker tail`](./tail.md) | Stream live logs to the terminal |
+| [`tinker metrics`](./metrics.md) | Query metric time series |
+| [`tinker anomaly`](./anomaly.md) | Detect anomalies across all metrics |
+| [`tinker trace`](./trace.md) | Retrieve distributed traces |
+| [`tinker diff`](./diff.md) | Compare two time windows side-by-side |
+| [`tinker investigate`](./investigate.md) | Interactive RCA REPL |
+| [`tinker rca`](./rca.md) | Streaming AI root-cause analysis |
+| [`tinker slo`](./slo.md) | Compute SLO availability and error budget |
+| [`tinker watch`](./watch.md) | Manage continuous background monitoring |
+| [`tinker alert`](./alert.md) | Manage threshold-based alert rules |
+| [`tinker deploy`](./deploy.md) | List deploys and correlate with anomalies |
+| [`tinker profile`](./profile.md) | Manage named profiles |
 
 ---
 
