@@ -388,7 +388,9 @@ class InvestigateREPL:
         style = _CLASS_STYLE.get(error_class, "dim")
         console.print(f"[dim]Error class:[/dim] [{style}]{error_class}[/{style}]\n")
 
-        if error_class == "transient":
+        has_changes = bool(fix_result.get("file_changes") or fix_result.get("diff"))
+
+        if error_class == "transient" and not has_changes:
             console.print(
                 Panel(
                     fix_result.get("explanation", "Transient error — no patch generated."),
