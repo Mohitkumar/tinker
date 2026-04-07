@@ -49,7 +49,9 @@ class FixRequest(BaseModel):
 
 class FileChange(BaseModel):
     path: str
-    new_content: str
+    new_content: str        # full file content after applying the edit
+    old_string: str = ""    # the exact original lines that were replaced
+    new_string: str = ""    # the replacement lines
 
 
 class ApproveRequest(BaseModel):
@@ -236,6 +238,89 @@ async def approve(
     return {"pr_url": pr_url}
 
 
+# ── Language detection ────────────────────────────────────────────────────────
+
+_LANG_RULES: dict[str, str] = {
+    "go": (
+        "LANGUAGE: Go\n"
+        "  - Use tabs for indentation (gofmt standard) — do NOT change existing indentation\n"
+        "  - Error handling: return (value, error) — use `if err != nil` checks\n"
+        "  - Retry logic: use a simple loop or golang.org/x/net/context; do NOT add new dependencies\n"
+        "  - Timeouts: use context.WithTimeout — pass context through the call chain\n"
+        "  - Do NOT add fmt.Println or log.Println for debugging\n"
+        "  - Preserve all existing import grouping (stdlib / external / internal)\n"
+        "  - Only add imports that are actually used"
+    ),
+    "java": (
+        "LANGUAGE: Java\n"
+        "  - Use 4-space indentation — do NOT change existing indentation\n"
+        "  - Retry logic: use a simple loop with Thread.sleep(); avoid new frameworks\n"
+        "  - Timeouts: set on the existing client/connection object — do not redesign\n"
+        "  - Preserve existing exception hierarchy — catch specific exceptions, not Exception\n"
+        "  - Do NOT add System.out.println or logging changes unrelated to the fix\n"
+        "  - Keep existing annotation and import order"
+    ),
+    "python": (
+        "LANGUAGE: Python\n"
+        "  - Use 4-space indentation — do NOT change existing indentation\n"
+        "  - Retry logic: use tenacity or a manual loop — do not add new dependencies unless already present\n"
+        "  - Timeouts: pass timeout= to existing client calls\n"
+        "  - Preserve existing type annotations exactly as found\n"
+        "  - Do NOT change string quote style or add/remove blank lines unrelated to the fix\n"
+        "  - Keep existing import order (stdlib / third-party / local)"
+    ),
+    "typescript": (
+        "LANGUAGE: TypeScript / JavaScript\n"
+        "  - Preserve existing indentation (spaces or tabs) exactly\n"
+        "  - Retry logic: use a simple async loop with setTimeout-based delay\n"
+        "  - Timeouts: use AbortController or the existing client's timeout option\n"
+        "  - Preserve existing async/await vs Promise chain style\n"
+        "  - Do NOT change semicolon or quote style"
+    ),
+    "ruby": (
+        "LANGUAGE: Ruby\n"
+        "  - Use 2-space indentation — do NOT change existing indentation\n"
+        "  - Retry logic: use the built-in `retry` keyword inside rescue\n"
+        "  - Preserve existing method visibility and module structure"
+    ),
+}
+
+_EXT_TO_LANG: dict[str, str] = {
+    ".go":   "go",
+    ".java": "java",
+    ".py":   "python",
+    ".ts":   "typescript",
+    ".js":   "typescript",
+    ".rb":   "ruby",
+}
+
+
+def _detect_language(error_class: "ErrorClass", code_context: str) -> str | None:
+    """Detect the primary language from stack trace file extensions."""
+    import os
+    for path, _ in error_class.stack_files:
+        ext = os.path.splitext(path)[1].lower()
+        if ext in _EXT_TO_LANG:
+            return _LANG_RULES[_EXT_TO_LANG[ext]]
+    # Fallback: scan code context header lines for file extensions
+    for line in code_context.splitlines()[:10]:
+        for ext, lang in _EXT_TO_LANG.items():
+            if ext in line:
+                return _LANG_RULES[lang]
+    return None
+
+
+_UNIVERSAL_FIX_RULES = (
+    "CRITICAL RULES — apply to every language:\n"
+    "  - Change ONLY the lines needed to fix the specific bug — nothing else\n"
+    "  - Do NOT reformat, re-indent, or reorganise code that is not part of the fix\n"
+    "  - Do NOT rename variables, methods, or classes\n"
+    "  - Do NOT add comments or docstrings unless they explain the fix directly\n"
+    "  - Do NOT remove existing comments or blank lines\n"
+    "  - The diff between old and new file must contain ONLY the bug fix"
+)
+
+
 # ── Fix agent implementations ─────────────────────────────────────────────────
 
 async def _fix_transient(
@@ -256,10 +341,13 @@ async def _fix_transient(
 
     # Pre-fetch stack trace files to include in the prompt (no agent turns wasted)
     call_site_code = _fetch_code_context(error_class, anomaly.get("service", ""), deep=False)
+    lang_rules = _detect_language(error_class, call_site_code)
 
     system_prompt = (
         "You are an expert SRE fixing a TRANSIENT / INFRASTRUCTURE error.\n\n"
         f"Error classification: {error_class.reason}\n\n"
+        + (f"{lang_rules}\n\n" if lang_rules else "")
+        + f"{_UNIVERSAL_FIX_RULES}\n\n"
         "This is NOT a logic bug — do NOT refactor or redesign. "
         "Make the SMALLEST safe change at the specific call site:\n"
         "  - Add or fix a timeout parameter\n"
@@ -267,11 +355,11 @@ async def _fix_transient(
         "  - Add a circuit breaker or fallback\n"
         "  - Add input validation / null guard at the entry point\n"
         "  - Fix a connection pool size or configuration value\n\n"
-        "Rules:\n"
+        "Tool rules:\n"
         "  - Use github_get_file ONLY for files directly in the stack trace\n"
         "  - Do NOT call github_search_code or github_get_commits\n"
-        "  - propose_fix takes the COMPLETE new file content\n"
-        "  - Call propose_fix as soon as you identify the fix (max 4 turns)\n\n"
+        "  - propose_edit takes only the lines that change (old_string → new_string)\n"
+        "  - Call propose_edit as soon as you identify the fix (max 4 turns)\n\n"
         "--- Anomaly Summary ---\n"
         f"{context_block}"
         + (f"\n\n--- Call Site Code ---\n{call_site_code}\n--- End Code ---"
@@ -287,13 +375,21 @@ async def _fix_transient(
                 "path": {"type": "string"},
                 "ref":  {"type": "string"},
             }, "required": ["path"]}),
-        _fn("propose_fix",
-            "Stage the fix. Provide COMPLETE new file content. Call once when ready.",
+        _fn("propose_edit",
+            "Stage a surgical edit: provide ONLY the lines to change, not the whole file. "
+            "old_string must be copied EXACTLY from the file (correct indentation/whitespace). "
+            "If old_string is not found verbatim the edit is rejected and you must retry.",
             {"type": "object", "properties": {
-                "path":        {"type": "string"},
-                "new_content": {"type": "string"},
-                "explanation": {"type": "string"},
-            }, "required": ["path", "new_content", "explanation"]}),
+                "path":        {"type": "string", "description": "Repo-relative file path"},
+                "old_string":  {"type": "string", "description":
+                    "The EXACT lines to replace, copied verbatim from github_get_file. "
+                    "Must be unique in the file. Include enough surrounding context "
+                    "(function signature, closing brace) to make it unambiguous."},
+                "new_string":  {"type": "string", "description":
+                    "The replacement lines. Must preserve the file's indentation style."},
+                "explanation": {"type": "string", "description":
+                    "What was wrong and exactly what lines were changed and why"},
+            }, "required": ["path", "old_string", "new_string", "explanation"]}),
     ]
 
     from tinker import toml_config as tc
@@ -316,23 +412,27 @@ async def _fix_logic_bug(
 
     context_block = build_explain_context(anomaly)
     call_site_code = _fetch_code_context(error_class, anomaly.get("service", ""), deep=True)
+    lang_rules = _detect_language(error_class, call_site_code)
 
     system_prompt = (
         "You are an expert SRE and software engineer fixing a CODE LOGIC BUG.\n\n"
         f"Error classification: {error_class.reason}\n\n"
-        "Strategy:\n"
+        + (f"{lang_rules}\n\n" if lang_rules else "")
+        + f"{_UNIVERSAL_FIX_RULES}\n\n"
+        "Investigation strategy:\n"
         "1. Start with the stack trace files (already provided below if available)\n"
         "2. Use github_get_file to read additional context around the failure\n"
         "3. Use github_search_code to find related patterns — similar error handling, "
         "the same field/variable used elsewhere, related tests\n"
         "4. Use github_get_commits on the failing file to check for recent changes "
         "that may have introduced the bug\n"
-        "5. Identify the root cause — be specific about the code path\n"
-        "6. Call propose_fix with the COMPLETE updated file content\n\n"
-        "Rules:\n"
-        "  - propose_fix takes COMPLETE file content, not a diff\n"
-        "  - Make the minimal correct fix — do not refactor unrelated code\n"
-        "  - Call propose_fix once when confident (max 12 turns)\n\n"
+        "5. Identify the root cause — be specific about the code path and line\n"
+        "6. Call propose_edit with the EXACT lines that need to change (old_string → new_string)\n\n"
+        "Tool rules:\n"
+        "  - propose_edit takes only the lines that change (old_string → new_string)\n"
+        "  - old_string must be copied EXACTLY from the file — correct indentation\n"
+        "  - Make the minimal correct fix — do not touch unrelated code\n"
+        "  - Call propose_edit once when confident (max 12 turns)\n\n"
         "--- Anomaly Summary ---\n"
         f"{context_block}"
         + (f"\n\n--- Stack Trace Files ---\n{call_site_code}\n--- End Code ---"
@@ -360,14 +460,21 @@ async def _fix_logic_bug(
                 "path": {"type": "string", "default": "."},
                 "n":    {"type": "integer", "default": 10},
             }}),
-        _fn("propose_fix",
-            "Stage the fix. Provide COMPLETE new file content (not a diff). "
-            "Call once when confident.",
+        _fn("propose_edit",
+            "Stage a surgical edit: provide ONLY the lines to change, not the whole file. "
+            "old_string must be copied EXACTLY from the file (correct indentation/whitespace). "
+            "If old_string is not found verbatim the edit is rejected and you must retry.",
             {"type": "object", "properties": {
-                "path":        {"type": "string"},
-                "new_content": {"type": "string"},
-                "explanation": {"type": "string"},
-            }, "required": ["path", "new_content", "explanation"]}),
+                "path":        {"type": "string", "description": "Repo-relative file path"},
+                "old_string":  {"type": "string", "description":
+                    "The EXACT lines to replace, copied verbatim from github_get_file. "
+                    "Must be unique in the file. Include enough surrounding context "
+                    "(function signature, closing brace) to make it unambiguous."},
+                "new_string":  {"type": "string", "description":
+                    "The replacement lines. Must preserve the file's indentation style."},
+                "explanation": {"type": "string", "description":
+                    "What was wrong and exactly what lines were changed and why"},
+            }, "required": ["path", "old_string", "new_string", "explanation"]}),
     ]
 
     from tinker import toml_config as tc
@@ -404,9 +511,25 @@ async def _run_agent_loop(
                 name, args = tool_call["name"], tool_call["arguments"]
                 log.debug("fix.tool_call", turn=turn, tool=name, path=args.get("path", ""))
 
-                if name == "propose_fix":
-                    staged = args
-                    result_str = "Fix staged. Task complete."
+                if name == "propose_edit":
+                    resolved_path, new_content, error = _apply_edit(
+                        args.get("path", ""),
+                        args.get("old_string", ""),
+                        args.get("new_string", ""),
+                        gh,
+                    )
+                    if error:
+                        log.warning("fix.edit_rejected", turn=turn, reason=error[:120])
+                        result_str = error
+                    else:
+                        staged = {
+                            "path": resolved_path,
+                            "new_content": new_content,
+                            "old_string": args.get("old_string", ""),
+                            "new_string": args.get("new_string", ""),
+                            "explanation": args.get("explanation", ""),
+                        }
+                        result_str = "Edit staged. Task complete."
                 else:
                     result_str = _dispatch_read_tool(name, args, gh)
 
@@ -465,6 +588,55 @@ def _fetch_code_context(
         sections.append(f"# {path} (around line {lineno})\n```\n{numbered}\n```")
 
     return "\n\n".join(sections)
+
+
+# ── Edit application ──────────────────────────────────────────────────────────
+
+def _apply_edit(path: str, old_string: str, new_string: str, gh: "GitHubCodeProvider") -> tuple[str, str, str | None]:
+    """Apply an old_string → new_string edit to a file fetched from GitHub.
+
+    Returns (resolved_path, new_full_content, error_message).
+    error_message is None on success.
+    resolved_path may differ from path when get_file resolves a container-relative path.
+
+    Mirrors how Claude Code's Edit tool works:
+      - Fetch the current file content
+      - Verify old_string exists verbatim (catches hallucinated edits)
+      - Replace first occurrence with new_string
+      - Return the resolved repo path + complete updated file content
+    """
+    resolved_path = path
+    original = gh.get_file(path)
+    if original.startswith("("):
+        return path, "", f"REJECTED: could not read file '{path}': {original}"
+
+    # Strip the "# resolved 'x' → 'y'" header that get_file prepends for path-resolved files,
+    # and capture the actual repo path so approve uses the correct path.
+    if original.startswith("# resolved "):
+        header, _, original = original.partition("\n")
+        # header format: "# resolved '/app/main.go' → 'services/inventory/main.go'"
+        if " → '" in header:
+            resolved_path = header.split(" → '", 1)[1].rstrip("'")
+
+    if old_string not in original:
+        # Try normalising line endings in case of CRLF mismatch
+        normalised = original.replace("\r\n", "\n")
+        old_normalised = old_string.replace("\r\n", "\n")
+        if old_normalised in normalised:
+            return resolved_path, normalised.replace(old_normalised, new_string, 1), None
+
+        # Count how many lines matched to give the model useful feedback
+        old_lines = old_string.splitlines()
+        matched = sum(1 for l in old_lines if l in original)
+        return resolved_path, "", (
+            f"REJECTED: old_string not found verbatim in '{path}' "
+            f"({matched}/{len(old_lines)} lines matched). "
+            "Read the file again with github_get_file and copy the EXACT lines "
+            "you want to replace — including correct indentation and whitespace."
+        )
+
+    new_content = original.replace(old_string, new_string, 1)
+    return resolved_path, new_content, None
 
 
 # ── Tool helpers ──────────────────────────────────────────────────────────────
