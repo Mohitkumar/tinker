@@ -37,7 +37,7 @@ from typing import Any
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -231,6 +231,46 @@ class DatadogBackend(ObservabilityBackend):
                 return []  # APM not enabled
             resp.raise_for_status()
             return resp.json().get("data", [])
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch recent traces from Datadog APM and convert to Trace objects."""
+        query = "status:error OR *"
+        if tags:
+            query = " ".join(f"{k}:{v}" for k, v in tags.items())
+        raw = await self.search_traces(service, query=query, limit=limit)
+
+        traces: list[Trace] = []
+        for item in raw:
+            try:
+                attrs = item.get("attributes", {})
+                resource_name = attrs.get("resource_name") or attrs.get("name", "unknown")
+                start_str = attrs.get("start", "")
+                try:
+                    start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    start_dt = datetime.now(timezone.utc)
+                # Datadog returns duration in nanoseconds
+                duration_ns = float(attrs.get("duration", 0))
+                duration_ms = duration_ns / 1e6
+                status = "error" if attrs.get("status", "ok") in ("error", "fail") else "ok"
+                traces.append(Trace(
+                    trace_id=str(item.get("id", ""))[:16],
+                    service=service,
+                    operation_name=resource_name,
+                    start_time=start_dt,
+                    duration_ms=duration_ms,
+                    span_count=int(attrs.get("span_count") or 1),
+                    status=status,
+                ))
+            except Exception:
+                continue
+        return traces
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
 

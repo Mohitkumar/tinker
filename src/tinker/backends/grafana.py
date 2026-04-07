@@ -39,7 +39,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError, Trace, TraceSpan
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -336,6 +336,53 @@ class GrafanaBackend(ObservabilityBackend):
             )
             resp.raise_for_status()
             return resp.json().get("traces", [])
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch recent traces from Tempo and convert to Trace objects."""
+        raw = await self.search_traces(service, tags=tags, limit=limit)
+        traces: list[Trace] = []
+        for t in raw:
+            try:
+                start_ns = int(t.get("startTimeUnixNano", 0))
+                start_dt = datetime.fromtimestamp(start_ns / 1e9, tz=timezone.utc) if start_ns else datetime.now(timezone.utc)
+                duration_ms = float(t.get("durationMs", 0))
+                root_name = t.get("rootTraceName") or t.get("rootServiceName") or "unknown"
+                status = "error" if any(
+                    s.get("attributes", {}).get("error") for s in t.get("spanSets", [{}])[0].get("spans", [])
+                ) else "ok"
+                span_sets = t.get("spanSets", [])
+                span_count = sum(len(ss.get("spans", [])) for ss in span_sets)
+                spans = []
+                for ss in span_sets:
+                    for s in ss.get("spans", []):
+                        spans.append(TraceSpan(
+                            span_id=s.get("spanID", ""),
+                            operation_name=s.get("name", ""),
+                            service=service,
+                            start_time=datetime.fromtimestamp(int(s.get("startTimeUnixNano", start_ns)) / 1e9, tz=timezone.utc),
+                            duration_ms=float(s.get("durationNanos", 0)) / 1e6,
+                            status="error" if s.get("attributes", {}).get("error") else "ok",
+                            parent_span_id=s.get("parentSpanID", ""),
+                        ))
+                traces.append(Trace(
+                    trace_id=t.get("traceID", ""),
+                    service=service,
+                    operation_name=root_name,
+                    start_time=start_dt,
+                    duration_ms=duration_ms,
+                    span_count=span_count or len(spans),
+                    status=status,
+                    spans=spans,
+                ))
+            except Exception:
+                continue
+        return traces
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
 

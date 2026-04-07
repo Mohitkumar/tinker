@@ -13,7 +13,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, Trace, TraceSpan
 from tinker.client.config import ServerConfig
 
 log = structlog.get_logger(__name__)
@@ -23,6 +23,38 @@ _QUERY_TIMEOUT = 30.0
 _EXPLAIN_TIMEOUT = 120.0
 _FIX_TIMEOUT = 300.0
 _ANALYZE_TIMEOUT = 300.0  # analysis can take a while
+
+
+def _parse_trace(d: dict) -> Trace:
+    from datetime import timezone
+    ts_raw = d.get("start_time", "")
+    try:
+        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        ts = datetime.now(timezone.utc)
+    spans = [
+        TraceSpan(
+            span_id=s.get("span_id", ""),
+            operation_name=s.get("operation_name", ""),
+            service=s.get("service", ""),
+            start_time=datetime.fromisoformat(s.get("start_time", ts_raw).replace("Z", "+00:00")),
+            duration_ms=float(s.get("duration_ms", 0)),
+            status=s.get("status", "ok"),
+            parent_span_id=s.get("parent_span_id", ""),
+            tags=s.get("tags", {}),
+        )
+        for s in d.get("spans", [])
+    ]
+    return Trace(
+        trace_id=d.get("trace_id", ""),
+        service=d.get("service", ""),
+        operation_name=d.get("operation_name", ""),
+        start_time=ts,
+        duration_ms=float(d.get("duration_ms", 0)),
+        span_count=int(d.get("span_count", 0)),
+        status=d.get("status", "ok"),
+        spans=spans,
+    )
 
 
 def _parse_log_entry(d: dict) -> LogEntry:
@@ -263,6 +295,98 @@ class RemoteClient:
     async def delete_watch(self, watch_id: str) -> dict[str, Any]:
         async with self._client() as c:
             resp = await c.delete(f"/api/v1/watches/{watch_id}/delete")
+            resp.raise_for_status()
+        return resp.json()
+
+    # ── Traces ────────────────────────────────────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        from datetime import timezone
+        async with self._client() as c:
+            resp = await c.post("/api/v1/traces", json={"service": service, "since": since, "limit": limit, "tags": tags})
+            resp.raise_for_status()
+        return [_parse_trace(t) for t in resp.json().get("traces", [])]
+
+    # ── SLO ───────────────────────────────────────────────────────────────────
+
+    async def get_slo(self, service: str, target_pct: float = 99.9, window: str = "30d") -> dict[str, Any]:
+        async with self._client() as c:
+            resp = await c.post("/api/v1/slo", json={"service": service, "target_pct": target_pct, "window": window})
+            resp.raise_for_status()
+        return resp.json()
+
+    # ── Deploys ───────────────────────────────────────────────────────────────
+
+    async def get_deploys(self, service: str, since: str = "7d", limit: int = 10) -> dict[str, Any]:
+        async with self._client() as c:
+            resp = await c.get(f"/api/v1/deploys/{service}", params={"since": since, "limit": limit})
+            resp.raise_for_status()
+        return resp.json()
+
+    async def correlate_deploys(self, service: str, since: str = "7d", window_minutes: int = 30) -> dict[str, Any]:
+        async with self._client() as c:
+            resp = await c.get(f"/api/v1/deploys/{service}/correlate", params={"since": since, "window_minutes": window_minutes})
+            resp.raise_for_status()
+        return resp.json()
+
+    # ── RCA ───────────────────────────────────────────────────────────────────
+
+    async def stream_rca(self, service: str, since: str = "1h", severity_filter: str | None = None) -> AsyncGenerator[str, None]:
+        body = {"service": service, "since": since, "severity_filter": severity_filter}
+        async with self._client(timeout=_ANALYZE_TIMEOUT) as c:
+            async with c.stream("POST", "/api/v1/rca", json=body) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        payload = line[6:]
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            yield json.loads(payload).get("text", "")
+                        except json.JSONDecodeError:
+                            pass
+
+    # ── Alerts ────────────────────────────────────────────────────────────────
+
+    async def create_alert(
+        self,
+        service: str,
+        metric: str,
+        operator: str,
+        threshold: float,
+        severity: str = "medium",
+        notifier: str | None = None,
+        destination: str | None = None,
+    ) -> dict[str, Any]:
+        body = {"service": service, "metric": metric, "operator": operator,
+                "threshold": threshold, "severity": severity,
+                "notifier": notifier, "destination": destination}
+        async with self._client() as c:
+            resp = await c.post("/api/v1/alerts", json=body)
+            resp.raise_for_status()
+        return resp.json()
+
+    async def list_alerts(self) -> list[dict[str, Any]]:
+        async with self._client() as c:
+            resp = await c.get("/api/v1/alerts")
+            resp.raise_for_status()
+        return resp.json().get("alerts", [])
+
+    async def delete_alert(self, alert_id: str) -> dict[str, Any]:
+        async with self._client() as c:
+            resp = await c.delete(f"/api/v1/alerts/{alert_id}")
+            resp.raise_for_status()
+        return resp.json()
+
+    async def mute_alert(self, alert_id: str, duration: str = "1h") -> dict[str, Any]:
+        async with self._client() as c:
+            resp = await c.post(f"/api/v1/alerts/{alert_id}/mute", json={"duration": duration})
             resp.raise_for_status()
         return resp.json()
 

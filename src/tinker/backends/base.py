@@ -62,6 +62,54 @@ class Anomaly:
         }
 
 
+@dataclass
+class TraceSpan:
+    span_id: str
+    operation_name: str
+    service: str
+    start_time: datetime
+    duration_ms: float
+    status: str = "ok"          # ok | error
+    parent_span_id: str = ""
+    tags: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class Trace:
+    trace_id: str
+    service: str
+    operation_name: str
+    start_time: datetime
+    duration_ms: float
+    span_count: int
+    status: str = "ok"          # ok | error
+    spans: list[TraceSpan] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "trace_id": self.trace_id,
+            "service": self.service,
+            "operation_name": self.operation_name,
+            "start_time": self.start_time.isoformat(),
+            "duration_ms": self.duration_ms,
+            "span_count": self.span_count,
+            "status": self.status,
+            "spans": [
+                {
+                    "span_id": s.span_id,
+                    "parent_span_id": s.parent_span_id,
+                    "operation_name": s.operation_name,
+                    "service": s.service,
+                    "start_time": s.start_time.isoformat(),
+                    "duration_ms": s.duration_ms,
+                    "status": s.status,
+                    "tags": s.tags,
+                }
+                for s in self.spans
+            ],
+        }
+
+
 # ── Exceptions ────────────────────────────────────────────────────────────────
 
 
@@ -123,6 +171,21 @@ class ObservabilityBackend(ABC):
     ) -> list[Anomaly]:
         """Detect anomalies for a service over a recent time window."""
         ...
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch recent distributed traces for a service.
+
+        Backends that support tracing (Tempo, X-Ray, Cloud Trace, APM) should
+        override this. Default returns an empty list so non-trace backends
+        degrade gracefully.
+        """
+        return []
 
     # ── Streaming (non-abstract, poll-based default) ──────────────────────────
 

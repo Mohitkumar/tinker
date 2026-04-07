@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS watches (
     interval_seconds  INTEGER NOT NULL DEFAULT 60,
     status            TEXT NOT NULL DEFAULT 'running'
 );
+
+CREATE TABLE IF NOT EXISTS alert_rules (
+    alert_id    TEXT PRIMARY KEY,
+    service     TEXT NOT NULL,
+    metric      TEXT NOT NULL,
+    operator    TEXT NOT NULL,
+    threshold   REAL NOT NULL,
+    severity    TEXT NOT NULL DEFAULT 'medium',
+    notifier    TEXT,
+    destination TEXT,
+    muted_until TEXT,
+    created_at  TEXT NOT NULL
+);
 """
 
 
@@ -201,6 +214,68 @@ class TinkerDB:
         )
         self._conn.commit()
         return cur.rowcount
+
+    # ── Alert rules ───────────────────────────────────────────────────────────
+
+    def create_alert(
+        self,
+        service: str,
+        metric: str,
+        operator: str,
+        threshold: float,
+        severity: str = "medium",
+        notifier: str | None = None,
+        destination: str | None = None,
+    ) -> dict:
+        alert_id = f"alert-{uuid.uuid4().hex[:8]}"
+        now = _now()
+        self._conn.execute(
+            "INSERT INTO alert_rules"
+            " (alert_id, service, metric, operator, threshold, severity, notifier, destination, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (alert_id, service, metric, operator, threshold, severity, notifier, destination, now),
+        )
+        self._conn.commit()
+        return self.get_alert(alert_id) or {}
+
+    def get_alert(self, alert_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM alert_rules WHERE alert_id = ?", (alert_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_alerts(self, service: str | None = None) -> list[dict]:
+        if service:
+            rows = self._conn.execute(
+                "SELECT * FROM alert_rules WHERE service = ? ORDER BY created_at DESC", (service,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM alert_rules ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_alert(self, alert_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT alert_id FROM alert_rules WHERE alert_id = ?", (alert_id,)
+        ).fetchone()
+        if not row:
+            return False
+        self._conn.execute("DELETE FROM alert_rules WHERE alert_id = ?", (alert_id,))
+        self._conn.commit()
+        return True
+
+    def mute_alert(self, alert_id: str, muted_until: str) -> bool:
+        row = self._conn.execute(
+            "SELECT alert_id FROM alert_rules WHERE alert_id = ?", (alert_id,)
+        ).fetchone()
+        if not row:
+            return False
+        self._conn.execute(
+            "UPDATE alert_rules SET muted_until = ? WHERE alert_id = ?", (muted_until, alert_id)
+        )
+        self._conn.commit()
+        return True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

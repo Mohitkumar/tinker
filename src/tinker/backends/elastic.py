@@ -7,7 +7,8 @@ from typing import Any
 
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from datetime import timedelta
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
 log = structlog.get_logger(__name__)
 
 
@@ -132,6 +133,73 @@ class ElasticBackend(ObservabilityBackend):
             )
             for b in buckets
         ]
+
+    # ── Traces via Elastic APM ────────────────────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch traces from Elastic APM (traces-* or apm-* indices)."""
+        unit = since[-1]
+        value = int(since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        end = datetime.now(timezone.utc)
+        start = end - delta
+
+        must: list[dict] = [
+            {"term": {"service.name": service}},
+            {"range": {"@timestamp": {"gte": start.isoformat(), "lte": end.isoformat()}}},
+            # Only root spans (no parent) to get one doc per trace
+            {"bool": {"must_not": [{"exists": {"field": "parent.id"}}]}},
+        ]
+        if tags:
+            for k, v in tags.items():
+                must.append({"term": {k: v}})
+
+        body: dict = {
+            "size": limit,
+            "sort": [{"@timestamp": {"order": "desc"}}],
+            "_source": ["trace.id", "transaction.name", "transaction.duration.us",
+                        "transaction.result", "@timestamp", "service.name"],
+            "query": {"bool": {"must": must}},
+        }
+
+        try:
+            resp = await self._client.search(index="traces-*,apm-*", body=body)
+        except Exception:
+            try:
+                resp = await self._client.search(index=self._index_pattern, body=body)
+            except Exception as exc:
+                log.warning("elastic.get_traces.error", service=service, error=str(exc))
+                return []
+
+        traces: list[Trace] = []
+        for hit in resp.get("hits", {}).get("hits", []):
+            src = hit.get("_source", {})
+            try:
+                ts_str = src.get("@timestamp", "")
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    ts = datetime.now(timezone.utc)
+                dur_us = float((src.get("transaction") or {}).get("duration", {}).get("us") or 0)
+                result = (src.get("transaction") or {}).get("result", "")
+                traces.append(Trace(
+                    trace_id=((src.get("trace") or {}).get("id") or hit["_id"])[:16],
+                    service=service,
+                    operation_name=(src.get("transaction") or {}).get("name", "unknown"),
+                    start_time=ts,
+                    duration_ms=dur_us / 1000,
+                    span_count=1,
+                    status="error" if "error" in result.lower() else "ok",
+                ))
+            except Exception:
+                continue
+        return traces
 
     async def detect_anomalies(
         self,

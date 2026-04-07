@@ -12,9 +12,13 @@ Open-source AI-powered observability and incident response agent. Connects to yo
 │                                                                  │
 │  tinker server  ──► FastAPI on :8000                            │
 │                                                                  │
-│  POST /api/v1/analyze    REST + SSE streaming RCA                │
+│  POST /api/v1/rca        full AI root-cause analysis (SSE)       │
 │  POST /api/v1/anomalies  anomaly detection                       │
+│  POST /api/v1/traces     distributed trace fetch                 │
+│  POST /api/v1/slo        SLO / error budget computation          │
 │  POST /api/v1/watches    server-side background watches          │
+│  POST /api/v1/alerts     threshold-based alert rules             │
+│  GET  /api/v1/deploys    GitHub commit / deploy history          │
 │  GET  /mcp/sse           Remote MCP for Claude Code              │
 │  POST /slack/events      Slack bot                               │
 │                                                                  │
@@ -110,6 +114,25 @@ tinker init cli                      # connect CLI to a running server
 
 tinker doctor                        # verify server connection and backend
 ```
+
+### Command summary
+
+| Command | LLM? | Description |
+|---|---|---|
+| `tinker logs <svc>` | — | Fetch recent log entries |
+| `tinker tail <svc>` | — | Stream live logs (Ctrl-C to stop) |
+| `tinker metrics <svc> <metric>` | — | Fetch metric time series |
+| `tinker anomaly <svc>` | — | Detect anomalies (fast, no LLM) |
+| `tinker trace <svc>` | — | Fetch recent distributed traces |
+| `tinker diff <svc>` | — | Compare two time windows side-by-side |
+| `tinker slo <svc>` | — | Availability, error budget, and burn rate |
+| `tinker investigate <svc>` | on demand | Interactive REPL — group, explain, fix, PR |
+| `tinker rca <svc>` | ✓ | Full streaming root-cause analysis |
+| `tinker deploy list <svc>` | — | Recent commits (deploys) from GitHub |
+| `tinker deploy correlate <svc>` | — | Highlight deploys near anomaly spikes |
+| `tinker watch start/list/stop/delete` | — | Server-side background anomaly watches |
+| `tinker alert create/list/mute/delete` | — | Threshold-based alert rules |
+| `tinker profile list/use/add` | — | Manage cloud backend profiles |
 
 ---
 
@@ -237,6 +260,184 @@ Example: 1000 raw error logs → 2 unique patterns + 1 stack trace → ~1000-tok
 
 ---
 
+### Distributed tracing — `tinker trace`
+
+Fetch recent traces from your tracing backend (Tempo, X-Ray, Cloud Trace, Datadog APM). Backends that don't support tracing return an empty list gracefully.
+
+```bash
+tinker trace payments-api                    # last 1h
+tinker trace payments-api --since 30m        # shorter window
+tinker trace payments-api --limit 50         # more results
+tinker trace payments-api --output json
+```
+
+```
+ Traces — payments-api
+ Trace ID     Operation                    Duration   Spans   Status   Started
+ a1b2c3d4e5f6 POST /api/v1/charge           1 247ms      12   error    14:01:03
+ 9e8d7c6b5a4f GET  /api/v1/orders              42ms       4   ok       14:01:01
+ 3f2e1d0c9b8a POST /api/v1/refund            3 891ms      18   error    14:00:58
+
+Tip: check your tracing backend (Tempo / X-Ray / Cloud Trace) for the full waterfall.
+```
+
+---
+
+### Window diff — `tinker diff`
+
+Compare error rates and anomalies between two time windows. Useful for answering "is this worse than it was an hour ago?"
+
+The baseline window is automatically shifted back so it ends where the compare window begins — windows never overlap.
+
+```bash
+tinker diff payments-api                             # baseline=2h vs now=1h
+tinker diff payments-api --baseline 24h --compare 1h
+tinker diff auth-service --output json
+```
+
+```
+ Window Diff — payments-api
+ Metric           Baseline (2h)   Now (1h)   Delta
+ Error count            84            312     ▲ +228
+ Anomaly count           1              3     ▲ +2
+ Severity score          2              8     ▲ +6
+
+New anomalies (2):
+  • HIGH latency_p99 — 3.2s avg (threshold: 1s)
+  • MEDIUM db_connection_pool — pool exhausted 14 times
+
+Resolved (0):
+  No resolved anomalies.
+```
+
+---
+
+### Root Cause Analysis — `tinker rca`
+
+Runs a full AI root-cause analysis combining logs, metrics, and traces. Streams a structured report with six sections: executive summary, root cause, contributing factors, timeline, immediate actions, and prevention.
+
+Uses `claude-opus-4-6` with extended thinking for confirmed high-severity incidents.
+
+```bash
+tinker rca payments-api                    # last 1h
+tinker rca payments-api --since 2h         # wider window
+tinker rca payments-api --severity high    # only include high/critical anomalies
+```
+
+```
+╭─ Root Cause Analysis  payments-api  window:1h ──────────────────╮
+
+## Executive Summary
+The payments-api experienced a cascading failure starting at 14:01
+triggered by connection pool exhaustion on the PostgreSQL primary...
+
+## Root Cause
+db_connection_pool reached capacity (max=20) when a batch job
+opened 18 long-running transactions simultaneously...
+
+## Timeline
+14:00:47  Batch job started (commit a3f2b1c — deploy 6 min earlier)
+14:01:03  First connection timeout errors appear (trace a1b2c3d4)
+14:01:15  Error rate crosses 10% SLO threshold
+...
+
+## Immediate Actions
+1. Kill the batch job: `kubectl delete job payment-reconciler`
+2. Increase pool size temporarily: set DB_POOL_MAX=40 and restart
+
+## Prevention
+- Add connection pool monitoring to tinker alert
+- Move batch jobs to a read replica
+╰─────────────────────────────────────────────────────────────────╯
+```
+
+---
+
+### Deploy tracking — `tinker deploy`
+
+Cross-reference recent GitHub commits with anomaly spikes. Requires GitHub configured in `config.toml`.
+
+```bash
+# List recent commits for a service
+tinker deploy list payments-api
+tinker deploy list payments-api --since 14d --limit 20
+
+# Highlight commits that had anomalies within 30 minutes
+tinker deploy correlate payments-api
+tinker deploy correlate payments-api --since 14d
+```
+
+```
+ Deploys — payments-api (7d)  |  3 anomaly(ies) in window
+ SHA       Message                              Author    Time                  Nearby Anomalies
+ a3f2b1c   add batch reconciliation job         alice     2026-04-07 13:54:47   • HIGH latency_p99 — 3.2s avg
+                                                                                 • MEDIUM db_connection_pool
+ 9c8d7e6   fix null check in PaymentService     bob       2026-04-06 10:22:11   none
+ 3b2a1f0   upgrade stripe-sdk to 9.1.0          alice     2026-04-05 16:45:00   none
+```
+
+Commits with nearby anomalies are highlighted in red.
+
+---
+
+### SLO tracking — `tinker slo`
+
+Compute availability, error budget consumed, and burn rate from log-based error rates. A burn rate > 1× means you are consuming the error budget faster than the window allows.
+
+```bash
+tinker slo payments-api                          # 99.9% target, 30d window
+tinker slo payments-api --target 99.5 --window 7d
+tinker slo payments-api --output json
+```
+
+```
+ SLO — payments-api (window: 30d)
+ Status             ✗ SLO BREACH
+ Availability       99.8731%  (target: 99.9%)
+ Total requests     187 432
+ Error count        2 372
+ Error budget used  2 372 / 187 requests
+ Budget remaining   0.0%
+ Burn rate          12.68×  (>1 = consuming budget faster than sustainable)
+```
+
+---
+
+### Threshold alert rules — `tinker alert`
+
+Alert rules fire via your configured notifier when a metric crosses a threshold during a watch tick. Unlike watches (which trigger on any anomaly change), alert rules give you precise numeric thresholds per metric.
+
+```bash
+# Create a rule
+tinker alert create payments-api \
+  --metric error_rate --op gt --threshold 5.0 \
+  --severity high --notifier slack --destination "#oncall"
+
+tinker alert create auth-service \
+  --metric latency_p99 --op gt --threshold 500 \
+  --severity critical
+
+# List all rules
+tinker alert list
+
+# Mute during planned maintenance (30m, 2h, 1d)
+tinker alert mute alert-3a976e39 --duration 4h
+
+# Delete permanently
+tinker alert delete alert-3a976e39
+```
+
+```
+ Alert Rules
+ ID             Service          Metric          Condition    Severity   Notifier   Muted Until
+ alert-3a976e39 payments-api     error_rate       > 5.0        HIGH       slack      —
+ alert-9b2c1d0e auth-service     latency_p99      > 500        CRITICAL   —          2026-04-07 18:00
+```
+
+**Operators:** `gt` (>)  `lt` (<)  `gte` (≥)  `lte` (≤)
+
+---
+
 ### Background watches — `tinker watch`
 
 Watches run as asyncio tasks inside the server process. The server polls for anomalies on a schedule and dispatches alerts via the configured notifier when the anomaly set changes.
@@ -253,8 +454,11 @@ tinker watch start payments-api --notifier slack-main --destination "#payments-o
 # List all watches on the server
 tinker watch list
 
-# Stop a watch
+# Stop a watch (keeps the record as 'stopped' in the DB)
 tinker watch stop watch-abc123
+
+# Delete a watch permanently (removes the DB record entirely)
+tinker watch delete watch-abc123
 ```
 
 ```
@@ -269,7 +473,7 @@ tinker watch stop watch-abc123
 2. The server starts an asyncio task that polls `detect_anomalies` every `interval` seconds
 3. A SHA-256 hash of the current anomaly set is compared to the previous tick — the notifier is only called when the set changes
 4. Watch state is persisted in SQLite (`~/.tinker/tinker.db`) and resumed on server restart
-5. `tinker watch stop` calls `DELETE /api/v1/watches/{id}`, cancelling the asyncio task
+5. `tinker watch stop` marks the record stopped; `tinker watch delete` removes it
 
 **Alert message format (Slack):**
 ```
@@ -736,7 +940,7 @@ DISCORD_DEV_WEBHOOK_URL=https://discord.com/api/webhooks/...
 | `~/.tinker/config` | Server URL + API token — written by `tinker init cli` |
 | `~/.tinker/.env` | Server secrets — written by `tinker init server`, auto-loaded by `tinker server` |
 | `~/.tinker/config.toml` | Server structure config — written by `tinker init server` |
-| `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state |
+| `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state, alert rules |
 | `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinker/config`) |
 | `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinker/config`) |
 
@@ -822,7 +1026,7 @@ All per-user state lives in `~/.tinker/`:
 | `~/.tinker/config.toml` | `tinker init server` | `tinker server` (structure + routing) |
 | `~/.tinker/.env` | `tinker init server` | `tinker server` (secrets) |
 | `~/.tinker/config` | `tinker init cli` | all CLI commands |
-| `~/.tinker/tinker.db` | auto-created | `tinker investigate`, `tinker watch` |
+| `~/.tinker/tinker.db` | auto-created | `tinker investigate`, `tinker watch`, `tinker alert` |
 
 ---
 

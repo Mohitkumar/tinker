@@ -1,8 +1,9 @@
-"""Agent routes — LLM-powered explain, fix, and approve.
+"""Agent routes — LLM-powered explain, fix, approve, and rca.
 
 POST /api/v1/explain   — stream LLM explanation, enriched with code context when available
 POST /api/v1/fix       — run fix agent; depth driven by error classification
 POST /api/v1/approve   — apply staged file changes and open a GitHub PR
+POST /api/v1/rca       — stream full root-cause analysis combining logs + metrics + traces
 
 Error classification drives investigation depth:
   transient  (DB timeout, network, rate limit, bad input)
@@ -637,6 +638,133 @@ def _apply_edit(path: str, old_string: str, new_string: str, gh: "GitHubCodeProv
 
     new_content = original.replace(old_string, new_string, 1)
     return resolved_path, new_content, None
+
+
+# ── RCA ───────────────────────────────────────────────────────────────────────
+
+class RcaRequest(BaseModel):
+    service: str
+    since: str = "1h"
+    severity_filter: str | None = None   # e.g. "high" — only include anomalies at this level+
+
+
+@router.post("/rca")
+async def rca(
+    req: RcaRequest,
+    auth: Annotated[AuthContext, Depends(require_auth)],
+) -> StreamingResponse:
+    """Stream a full root-cause analysis combining logs, metrics, traces, and code context."""
+    from tinker.agent import llm as llm_mod
+    from tinker.backends import get_backend_for_service
+    from tinker.backends.base import ServiceNotFoundError
+    from tinker.agent.summarizer import build_explain_context
+
+    async def _stream() -> AsyncIterator[str]:
+        try:
+            backend = get_backend_for_service(req.service)
+        except Exception as exc:
+            yield _sse(f"[ERROR] Could not load backend: {exc}")
+            yield "data: [DONE]\n\n"
+            return
+
+        # ── Gather evidence in parallel ──────────────────────────────────────
+        from datetime import timedelta, timezone
+        unit = req.since[-1]
+        value = int(req.since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        window_minutes = int(delta.total_seconds() / 60)
+
+        import asyncio as _asyncio
+        try:
+            anomalies, traces = await _asyncio.gather(
+                backend.detect_anomalies(req.service, window_minutes=min(window_minutes, 60)),
+                backend.get_traces(req.service, since=req.since, limit=10),
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            yield _sse(f"[ERROR] Evidence gathering failed: {exc}")
+            yield "data: [DONE]\n\n"
+            return
+
+        if isinstance(anomalies, Exception):
+            anomalies = []
+        if isinstance(traces, Exception):
+            traces = []
+
+        # Apply severity filter
+        if req.severity_filter and isinstance(anomalies, list):
+            _order = ["low", "medium", "high", "critical"]
+            min_idx = _order.index(req.severity_filter.lower()) if req.severity_filter.lower() in _order else 0
+            anomalies = [a for a in anomalies if _order.index(a.severity.lower() if a.severity.lower() in _order else "low") >= min_idx]
+
+        # ── Build RCA prompt ─────────────────────────────────────────────────
+        anomaly_section = ""
+        if anomalies:
+            parts = []
+            for a in anomalies[:5]:
+                ctx = build_explain_context(a.to_dict())
+                parts.append(f"### Anomaly: {a.metric} ({a.severity.upper()})\n{ctx}")
+            anomaly_section = "\n\n".join(parts)
+        else:
+            anomaly_section = "No anomalies detected in the window."
+
+        trace_section = ""
+        if traces:
+            lines = []
+            for t in traces[:5]:
+                td = t.to_dict()
+                status_marker = "ERROR" if td["status"] == "error" else "ok"
+                lines.append(
+                    f"- trace_id={td['trace_id']} op={td['operation_name']} "
+                    f"duration={td['duration_ms']:.0f}ms spans={td['span_count']} status={status_marker}"
+                )
+            trace_section = "Recent traces:\n" + "\n".join(lines)
+        else:
+            trace_section = "No trace data available."
+
+        # Optionally pull code context from the highest-severity anomaly
+        code_section = ""
+        if anomalies:
+            from tinker.agent.error_classifier import classify
+            top = max(anomalies, key=lambda a: ["low","medium","high","critical"].index(a.severity.lower() if a.severity.lower() in ["low","medium","high","critical"] else "low"))
+            ec = classify(top.to_dict())
+            code_context = _fetch_code_context(ec, req.service, deep=ec.kind == "logic_bug")
+            if code_context:
+                code_section = (
+                    "\n\n--- Relevant Code (from GitHub) ---\n"
+                    + code_context +
+                    "\n--- End Code ---"
+                )
+
+        prompt = (
+            f"You are a senior SRE performing root cause analysis for service **{req.service}**.\n"
+            f"Analysis window: {req.since}\n\n"
+            "## Your task\n"
+            "Produce a structured RCA report with these sections:\n"
+            "1. **Executive Summary** — one paragraph, what broke and why\n"
+            "2. **Root Cause** — the specific technical cause, with evidence\n"
+            "3. **Contributing Factors** — secondary causes or amplifiers\n"
+            "4. **Timeline** — reconstruct what happened and when\n"
+            "5. **Immediate Actions** — what to do right now (with commands if applicable)\n"
+            "6. **Prevention** — how to prevent recurrence\n\n"
+            "## Evidence\n\n"
+            "### Anomalies\n"
+            f"{anomaly_section}\n\n"
+            "### Distributed Traces\n"
+            f"{trace_section}"
+            f"{code_section}\n\n"
+            "Be specific, cite evidence, and prioritise actionability over completeness."
+        )
+
+        log.info("rca.start", service=req.service, since=req.since,
+                 anomaly_count=len(anomalies), trace_count=len(traces), actor=auth.subject)
+
+        llm = llm_mod.get_llm()
+        async for chunk in llm.stream([{"role": "user", "content": prompt}]):
+            yield _sse(chunk)
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 # ── Tool helpers ──────────────────────────────────────────────────────────────

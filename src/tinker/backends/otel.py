@@ -31,7 +31,7 @@ from urllib.parse import urlencode
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -203,6 +203,83 @@ class OTelBackend(ObservabilityBackend):
                     )
                 )
         return points
+
+    # ── Traces via OpenSearch (otel-traces-*) ────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch root spans from the otel-traces-* index in OpenSearch."""
+        if not self._os_url:
+            return []
+
+        from datetime import timedelta
+        unit = since[-1]
+        value = int(since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        end = datetime.now(timezone.utc)
+        start = end - delta
+
+        must: list[dict] = [
+            {"term": {"resource.attributes.service.name": service}},
+            {"range": {"startTime": {"gte": start.isoformat(), "lte": end.isoformat()}}},
+            # Root spans only (parentSpanId is empty string in OTel format)
+            {"term": {"parentSpanId": ""}},
+        ]
+        if tags:
+            for k, v in tags.items():
+                must.append({"term": {f"attributes.{k}": v}})
+
+        body: dict = {
+            "size": limit,
+            "sort": [{"startTime": {"order": "desc"}}],
+            "_source": ["traceId", "name", "startTime", "endTime", "status.code",
+                        "resource.attributes.service.name", "spanId"],
+            "query": {"bool": {"must": must}},
+        }
+
+        try:
+            async with httpx.AsyncClient(headers=self._os_headers, timeout=30) as client:
+                resp = await client.post(
+                    f"{self._os_url}/otel-traces-*/_search",
+                    json=body,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            log.warning("otel.get_traces.error", service=service, error=str(exc))
+            return []
+
+        traces: list[Trace] = []
+        for hit in data.get("hits", {}).get("hits", []):
+            src = hit.get("_source", {})
+            try:
+                start_str = src.get("startTime", "")
+                end_str = src.get("endTime", "")
+                try:
+                    start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                    end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                    dur_ms = (end_dt - start_dt).total_seconds() * 1000
+                except (ValueError, AttributeError):
+                    start_dt = datetime.now(timezone.utc)
+                    dur_ms = 0.0
+                status_code = (src.get("status") or {}).get("code", "STATUS_CODE_UNSET")
+                traces.append(Trace(
+                    trace_id=(src.get("traceId") or hit["_id"])[:16],
+                    service=service,
+                    operation_name=src.get("name", "unknown"),
+                    start_time=start_dt,
+                    duration_ms=dur_ms,
+                    span_count=1,
+                    status="error" if status_code == "STATUS_CODE_ERROR" else "ok",
+                ))
+            except Exception:
+                continue
+        return traces
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
 

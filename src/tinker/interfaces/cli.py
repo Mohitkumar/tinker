@@ -487,6 +487,294 @@ async def _watch_delete(watch_id) -> None:
     console.print(f"[green]Watch {watch_id} deleted.[/green]")
 
 
+# ── Trace command ────────────────────────────────────────────────────────────
+
+@app.command()
+def trace(
+    service: str = typer.Argument(..., help="Service name"),
+    since: str = typer.Option("1h", "--since", "-s", help="Look-back window: 30m, 1h, 2h"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max traces to return"),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]Fetch recent distributed traces for a service.[/bold cyan]
+
+    Examples:
+
+      tinker trace payments-api
+      tinker trace payments-api --since 30m --limit 50
+      tinker trace payments-api --output json
+    """
+    _run(_trace(service, since, limit, output))
+
+
+async def _trace(service, since, limit, output) -> None:
+    from tinker.interfaces.handlers import get_traces
+    from tinker.interfaces.renderers import render_traces
+    client = _get_client()
+    with console.status(f"[bold green]Fetching traces for {service}...[/bold green]"):
+        traces = await get_traces(client, service, since=since, limit=limit)
+    render_traces(traces, output, service=service)
+
+
+# ── Diff command ──────────────────────────────────────────────────────────────
+
+@app.command()
+def diff(
+    service: str = typer.Argument(..., help="Service name"),
+    baseline: str = typer.Option("2h", "--baseline", "-b", help="Baseline window (older period)"),
+    compare: str = typer.Option("1h", "--compare", "-c", help="Comparison window (current period)"),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]Compare error rates and anomalies between two time windows.[/bold cyan]
+
+    Baseline is shifted to end where compare begins, so windows never overlap.
+
+    Examples:
+
+      tinker diff payments-api
+      tinker diff payments-api --baseline 24h --compare 1h
+      tinker diff auth-service --output json
+    """
+    _run(_diff(service, baseline, compare, output))
+
+
+async def _diff(service, baseline, compare, output) -> None:
+    from tinker.interfaces.handlers import get_diff
+    from tinker.interfaces.renderers import render_diff
+    client = _get_client()
+    with console.status("[bold green]Comparing windows...[/bold green]"):
+        result = await get_diff(client, service, baseline=baseline, compare=compare)
+    render_diff(result, output)
+
+
+# ── RCA command ───────────────────────────────────────────────────────────────
+
+@app.command()
+def rca(
+    service: str = typer.Argument(..., help="Service name"),
+    since: str = typer.Option("1h", "--since", "-s", help="Evidence window: 30m, 1h, 2h"),
+    severity: Optional[str] = typer.Option(None, "--severity", help="Min severity to include: low/medium/high/critical"),
+) -> None:
+    """[bold cyan]Run a full AI root-cause analysis combining logs, metrics, and traces.[/bold cyan]
+
+    Streams a structured RCA report with executive summary, root cause,
+    contributing factors, timeline, immediate actions, and prevention.
+
+    Examples:
+
+      tinker rca payments-api
+      tinker rca payments-api --since 2h --severity high
+    """
+    _run(_rca(service, since, severity))
+
+
+async def _rca(service, since, severity) -> None:
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    client = _get_client()
+    console.print(Panel.fit(
+        f"[bold cyan]Root Cause Analysis[/bold cyan]  [dim]{service}  window:{since}[/dim]",
+        border_style="cyan",
+    ))
+    chunks: list[str] = []
+    with console.status("[bold green]Analysing logs, metrics, and traces...[/bold green]"):
+        # Drain first chunk to dismiss the spinner before streaming
+        gen = client.stream_rca(service, since=since, severity_filter=severity)
+        first = await gen.__anext__()
+        chunks.append(first)
+    console.print()
+    async for chunk in gen:
+        chunks.append(chunk)
+        console.print(chunk, end="", highlight=False)
+    console.print()
+
+
+# ── Deploy commands ───────────────────────────────────────────────────────────
+
+deploy_app = typer.Typer(help="Deploy tracking — list commits and correlate with anomalies.")
+app.add_typer(deploy_app, name="deploy")
+
+
+@deploy_app.command("list")
+def deploy_list(
+    service: str = typer.Argument(..., help="Service name"),
+    since: str = typer.Option("7d", "--since", "-s", help="Look-back window"),
+    limit: int = typer.Option(10, "--limit", "-n", help="Max commits to show"),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]List recent deploys (commits) for a service.[/bold cyan]
+
+    Examples:
+
+      tinker deploy list payments-api
+      tinker deploy list payments-api --since 14d --limit 20
+    """
+    _run(_deploy_list(service, since, limit, output))
+
+
+@deploy_app.command("correlate")
+def deploy_correlate(
+    service: str = typer.Argument(..., help="Service name"),
+    since: str = typer.Option("7d", "--since", "-s", help="Look-back window"),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]Correlate recent deploys with anomaly spikes.[/bold cyan]
+
+    Deploys with anomalies detected within 30 minutes are highlighted in red.
+
+    Examples:
+
+      tinker deploy correlate payments-api
+      tinker deploy correlate payments-api --since 14d
+    """
+    _run(_deploy_correlate(service, since, output))
+
+
+async def _deploy_list(service, since, limit, output) -> None:
+    from tinker.interfaces.handlers import get_deploys
+    from tinker.interfaces.renderers import render_deploys
+    client = _get_client()
+    with console.status(f"[bold green]Fetching deploys for {service}...[/bold green]"):
+        data = await get_deploys(client, service, since=since, limit=limit)
+    render_deploys(data, output, correlate=False)
+
+
+async def _deploy_correlate(service, since, output) -> None:
+    from tinker.interfaces.handlers import correlate_deploys
+    from tinker.interfaces.renderers import render_deploys
+    client = _get_client()
+    with console.status("[bold green]Correlating deploys with anomalies...[/bold green]"):
+        data = await correlate_deploys(client, service, since=since)
+    render_deploys(data, output, correlate=True)
+
+
+# ── SLO command ───────────────────────────────────────────────────────────────
+
+@app.command()
+def slo(
+    service: str = typer.Argument(..., help="Service name"),
+    target: float = typer.Option(99.9, "--target", "-t", help="SLO target percentage (e.g. 99.9)"),
+    window: str = typer.Option("30d", "--window", "-w", help="Measurement window: 7d, 30d, 90d"),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]Show SLO availability, error budget, and burn rate.[/bold cyan]
+
+    Computed from log-based error rates over the measurement window.
+    Burn rate > 1 means budget is being consumed faster than sustainable.
+
+    Examples:
+
+      tinker slo payments-api
+      tinker slo payments-api --target 99.5 --window 7d
+      tinker slo payments-api --output json
+    """
+    _run(_slo(service, target, window, output))
+
+
+async def _slo(service, target, window, output) -> None:
+    from tinker.interfaces.handlers import get_slo
+    from tinker.interfaces.renderers import render_slo
+    client = _get_client()
+    with console.status(f"[bold green]Computing SLO for {service}...[/bold green]"):
+        result = await get_slo(client, service, target_pct=target, window=window)
+    render_slo(result, output)
+
+
+# ── Alert commands ────────────────────────────────────────────────────────────
+
+alert_app = typer.Typer(help="Manage threshold-based alert rules.")
+app.add_typer(alert_app, name="alert")
+
+
+@alert_app.command("create")
+def alert_create(
+    service: str = typer.Argument(..., help="Service name"),
+    metric: str = typer.Option(..., "--metric", "-m", help="Metric name to watch"),
+    operator: str = typer.Option(..., "--op", help="Comparison operator: gt, lt, gte, lte"),
+    threshold: float = typer.Option(..., "--threshold", "-t", help="Numeric threshold"),
+    severity: str = typer.Option("medium", "--severity", "-s", help="low/medium/high/critical"),
+    notifier: Optional[str] = typer.Option(None, "--notifier", "-n", help="Notifier name from config.toml"),
+    destination: Optional[str] = typer.Option(None, "--destination", "-d", help="Channel / webhook override"),
+) -> None:
+    """[bold cyan]Create a threshold-based alert rule.[/bold cyan]
+
+    Examples:
+
+      tinker alert create payments-api --metric error_rate --op gt --threshold 5.0 --severity high
+      tinker alert create auth-service --metric latency_p99 --op gt --threshold 500 --notifier slack --destination "#oncall"
+    """
+    _run(_alert_create(service, metric, operator, threshold, severity, notifier, destination))
+
+
+@alert_app.command("list")
+def alert_list(
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o"),
+) -> None:
+    """[bold cyan]List all alert rules.[/bold cyan]"""
+    _run(_alert_list(output))
+
+
+@alert_app.command("delete")
+def alert_delete(
+    alert_id: str = typer.Argument(..., help="Alert ID from 'tinker alert list'"),
+) -> None:
+    """[bold cyan]Delete an alert rule.[/bold cyan]
+
+    Example:
+
+      tinker alert delete alert-3a976e39
+    """
+    _run(_alert_delete(alert_id))
+
+
+@alert_app.command("mute")
+def alert_mute(
+    alert_id: str = typer.Argument(..., help="Alert ID from 'tinker alert list'"),
+    duration: str = typer.Option("1h", "--duration", "-d", help="Mute duration: 30m, 2h, 1d"),
+) -> None:
+    """[bold cyan]Silence an alert rule for a duration.[/bold cyan]
+
+    Examples:
+
+      tinker alert mute alert-3a976e39
+      tinker alert mute alert-3a976e39 --duration 4h
+    """
+    _run(_alert_mute(alert_id, duration))
+
+
+async def _alert_create(service, metric, operator, threshold, severity, notifier, destination) -> None:
+    from tinker.interfaces.handlers import create_alert
+    client = _get_client()
+    rule = await create_alert(client, service, metric, operator, threshold, severity, notifier, destination)
+    console.print(
+        f"[green]Alert created[/green]  [bold]{rule.get('alert_id')}[/bold]\n"
+        f"  {service}  {metric} {operator} {threshold}  severity={severity}\n"
+        f"[dim]Mute with: tinker alert mute {rule.get('alert_id')}[/dim]"
+    )
+
+
+async def _alert_list(output) -> None:
+    from tinker.interfaces.handlers import get_alerts
+    from tinker.interfaces.renderers import render_alerts
+    client = _get_client()
+    alerts = await get_alerts(client)
+    render_alerts(alerts, output)
+
+
+async def _alert_delete(alert_id) -> None:
+    from tinker.interfaces.handlers import delete_alert
+    client = _get_client()
+    await delete_alert(client, alert_id)
+    console.print(f"[green]Alert {alert_id} deleted.[/green]")
+
+
+async def _alert_mute(alert_id, duration) -> None:
+    from tinker.interfaces.handlers import mute_alert
+    client = _get_client()
+    result = await mute_alert(client, alert_id, duration=duration)
+    console.print(f"[green]Alert {alert_id} muted until {result.get('muted_until', '?')[:19]}.[/green]")
+
+
 # ── Profile commands ──────────────────────────────────────────────────────────
 
 profile_app = typer.Typer(help="Manage configuration profiles (cloud backends).")

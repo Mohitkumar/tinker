@@ -28,7 +28,7 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, Trace
 
 console = Console()
 
@@ -215,5 +215,210 @@ def render_watches(watches: list[dict], fmt: OutputFormat) -> None:
             w.get("destination") or "—",
             f"{w.get('interval_seconds', '?')}s",
             (w.get("last_run_at") or "never")[:19],
+        )
+    console.print(table)
+
+
+# ── Traces ────────────────────────────────────────────────────────────────────
+
+def render_traces(traces: list[Trace], fmt: OutputFormat, service: str = "") -> None:
+    if fmt == OutputFormat.json:
+        print(_json.dumps([t.to_dict() for t in traces], indent=2, default=str))
+        return
+    if fmt == OutputFormat.jsonlines:
+        for t in traces:
+            print(_json.dumps(t.to_dict(), default=str))
+        return
+    if not traces:
+        console.print(f"[dim]No traces found{f' for {service}' if service else ''}.[/dim]")
+        return
+    table = Table(
+        show_header=True, header_style="bold magenta",
+        title=f"Traces — {service}" if service else "Traces",
+        show_lines=True,
+    )
+    table.add_column("Trace ID", width=12, no_wrap=True)
+    table.add_column("Operation", ratio=1, overflow="fold")
+    table.add_column("Duration", width=10, justify="right", no_wrap=True)
+    table.add_column("Spans", width=6, justify="right", no_wrap=True)
+    table.add_column("Status", width=7, no_wrap=True)
+    table.add_column("Started", width=10, no_wrap=True)
+    for t in traces:
+        status_style = "red" if t.status == "error" else "green"
+        table.add_row(
+            t.trace_id[:12],
+            t.operation_name,
+            f"{t.duration_ms:.0f}ms",
+            str(t.span_count),
+            f"[{status_style}]{t.status}[/{status_style}]",
+            t.start_time.strftime("%H:%M:%S"),
+        )
+    console.print(table)
+    console.print("[dim]Tip: check your tracing backend (Tempo / X-Ray / Cloud Trace) for the full waterfall.[/dim]")
+
+
+# ── Diff ──────────────────────────────────────────────────────────────────────
+
+def render_diff(diff: dict, fmt: OutputFormat) -> None:
+    if fmt == OutputFormat.json:
+        print(_json.dumps(diff, indent=2, default=str))
+        return
+    if fmt == OutputFormat.jsonlines:
+        print(_json.dumps(diff, default=str))
+        return
+
+    baseline = diff.get("baseline", {})
+    compare = diff.get("compare", {})
+    delta_errors = diff.get("delta_errors", 0)
+    delta_anomalies = diff.get("delta_anomalies", 0)
+    delta_sev = diff.get("delta_severity", 0)
+
+    def _arrow(n: int) -> str:
+        if n > 0:
+            return f"[red]▲ +{n}[/red]"
+        if n < 0:
+            return f"[green]▼ {n}[/green]"
+        return "[dim]═  0[/dim]"
+
+    table = Table(
+        show_header=True, header_style="bold magenta",
+        title=f"Window Diff — {diff.get('service', '')}", show_lines=True,
+    )
+    table.add_column("Metric", width=20)
+    table.add_column(f"Baseline ({baseline.get('window', '?')})", justify="right", width=20)
+    table.add_column(f"Now ({compare.get('window', '?')})", justify="right", width=16)
+    table.add_column("Delta", justify="right", width=12)
+    table.add_row("Error count",    str(baseline.get("error_count", 0)),    str(compare.get("error_count", 0)),    _arrow(delta_errors))
+    table.add_row("Anomaly count",  str(baseline.get("anomaly_count", 0)),  str(compare.get("anomaly_count", 0)),  _arrow(delta_anomalies))
+    table.add_row("Severity score", str(baseline.get("severity_score", 0)), str(compare.get("severity_score", 0)), _arrow(delta_sev))
+    console.print(table)
+
+    new_anomalies = diff.get("new_anomalies", [])
+    resolved = diff.get("resolved_anomalies", [])
+    if new_anomalies:
+        console.print(f"\n[red bold]New anomalies ({len(new_anomalies)}):[/red bold]")
+        for a in new_anomalies:
+            console.print(f"  [red]•[/red] [{SEVERITY_COLORS.get(a.get('severity','').lower(),'white')}]{a.get('severity','?').upper()}[/] {a.get('metric','?')} — {a.get('description','')[:80]}")
+    if resolved:
+        console.print(f"\n[green bold]Resolved ({len(resolved)}):[/green bold]")
+        for a in resolved:
+            console.print(f"  [green]✓[/green] {a.get('metric','?')} — {a.get('description','')[:80]}")
+    if not new_anomalies and not resolved:
+        console.print("\n[dim]No new or resolved anomalies between windows.[/dim]")
+
+
+# ── SLO ───────────────────────────────────────────────────────────────────────
+
+def render_slo(slo: dict, fmt: OutputFormat) -> None:
+    if fmt == OutputFormat.json:
+        print(_json.dumps(slo, indent=2, default=str))
+        return
+    if fmt == OutputFormat.jsonlines:
+        print(_json.dumps(slo, default=str))
+        return
+
+    status = slo.get("status", "unknown")
+    avail = slo.get("availability_pct", 0.0)
+    target = slo.get("target_pct", 99.9)
+    budget_rem = slo.get("budget_remaining_pct", 0.0)
+    burn_rate = slo.get("burn_rate", 0.0)
+
+    status_style = "green" if status == "ok" else "bold red"
+    status_label = "✓ MEETING SLO" if status == "ok" else "✗ SLO BREACH"
+
+    table = Table(
+        show_header=False, show_lines=True,
+        title=f"SLO — {slo.get('service', '')} (window: {slo.get('window', '?')})",
+    )
+    table.add_column("Metric", width=22, style="bold")
+    table.add_column("Value")
+    table.add_row("Status",           f"[{status_style}]{status_label}[/{status_style}]")
+    table.add_row("Availability",     f"{avail:.4f}%  (target: {target}%)")
+    table.add_row("Total requests",   str(slo.get("total_requests", 0)))
+    table.add_row("Error count",      str(slo.get("error_count", 0)))
+    table.add_row("Error budget used", f"{slo.get('budget_used', 0)} / {slo.get('budget_total', 0):.0f} requests")
+    table.add_row("Budget remaining", f"{budget_rem:.1f}%")
+    burn_style = "bold red" if burn_rate > 2 else "yellow" if burn_rate > 1 else "green"
+    table.add_row("Burn rate", f"[{burn_style}]{burn_rate:.2f}×[/{burn_style}]  (>1 = consuming budget faster than sustainable)")
+    console.print(table)
+
+
+# ── Deploys ───────────────────────────────────────────────────────────────────
+
+def render_deploys(data: dict, fmt: OutputFormat, correlate: bool = False) -> None:
+    deploys = data.get("deploys", [])
+    if fmt == OutputFormat.json:
+        print(_json.dumps(data, indent=2, default=str))
+        return
+    if fmt == OutputFormat.jsonlines:
+        for d in deploys:
+            print(_json.dumps(d, default=str))
+        return
+    if not deploys:
+        console.print(f"[dim]No deploys found for {data.get('service', '?')} in {data.get('since', '?')}.[/dim]")
+        return
+
+    title = f"Deploys — {data.get('service', '')} ({data.get('since', '?')})"
+    if correlate:
+        title += f"  |  {data.get('total_anomalies', 0)} anomaly(ies) in window"
+
+    table = Table(show_header=True, header_style="bold magenta", title=title, show_lines=True)
+    table.add_column("SHA", width=9, no_wrap=True)
+    table.add_column("Message", ratio=1, overflow="fold")
+    table.add_column("Author", width=16, no_wrap=True)
+    table.add_column("Time", width=20, no_wrap=True)
+    if correlate:
+        table.add_column("Nearby Anomalies", overflow="fold")
+
+    for d in deploys:
+        sha     = d.get("sha", "?")
+        msg     = d.get("message", "")
+        author  = (d.get("author") or "?")[:15]
+        ts      = (d.get("timestamp") or "")[:19].replace("T", " ")
+        nearby  = d.get("anomalies_nearby", [])
+        if correlate:
+            nearby_str = ("\n".join(f"• {n}" for n in nearby[:3])) if nearby else "[dim]none[/dim]"
+            sha_style  = "red bold" if nearby else "white"
+            table.add_row(f"[{sha_style}]{sha}[/{sha_style}]", msg, author, ts, nearby_str)
+        else:
+            table.add_row(sha, msg, author, ts)
+    console.print(table)
+
+
+# ── Alerts ────────────────────────────────────────────────────────────────────
+
+def render_alerts(alerts: list[dict], fmt: OutputFormat) -> None:
+    if fmt == OutputFormat.json:
+        print(_json.dumps(alerts, indent=2, default=str))
+        return
+    if fmt == OutputFormat.jsonlines:
+        for a in alerts:
+            print(_json.dumps(a, default=str))
+        return
+    if not alerts:
+        console.print("[dim]No alert rules configured.[/dim]")
+        return
+    table = Table(show_header=True, header_style="bold magenta", title="Alert Rules")
+    table.add_column("ID", width=14)
+    table.add_column("Service", width=18)
+    table.add_column("Metric", width=18)
+    table.add_column("Condition", width=14)
+    table.add_column("Severity", width=9)
+    table.add_column("Notifier", width=12)
+    table.add_column("Muted Until", width=20)
+    for a in alerts:
+        sev = a.get("severity", "medium")
+        sev_style = SEVERITY_COLORS.get(sev.lower(), "white")
+        op_symbols = {"gt": ">", "lt": "<", "gte": "≥", "lte": "≤"}
+        op = op_symbols.get(a.get("operator", ""), a.get("operator", "?"))
+        muted = (a.get("muted_until") or "—")[:19]
+        table.add_row(
+            a.get("alert_id", "?"),
+            a.get("service", "?"),
+            a.get("metric", "?"),
+            f"{op} {a.get('threshold', '?')}",
+            f"[{sev_style}]{sev.upper()}[/{sev_style}]",
+            a.get("notifier") or "—",
+            muted,
         )
     console.print(table)

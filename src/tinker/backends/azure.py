@@ -38,7 +38,7 @@ from typing import Any
 
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -201,6 +201,79 @@ class AzureBackend(ObservabilityBackend):
                             )
                         )
         return points
+
+    # ── Traces via App Insights (KQL) ────────────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch traces from Application Insights AppDependencies + AppRequests tables."""
+        if not self._workspace_id:
+            return []
+
+        unit = since[-1]
+        value = int(since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+
+        kql = f"""
+AppRequests
+| where AppRoleName == "{service}"
+| where TimeGenerated >= ago({value}{unit})
+| summarize
+    DurationMs = avg(DurationMs),
+    SpanCount  = count(),
+    HasError   = max(Success == false)
+    by OperationId, Name
+| order by TimeGenerated desc
+| limit {limit}
+"""
+        try:
+            from azure.monitor.query import LogsQueryStatus
+            result = await asyncio.to_thread(
+                self._logs_client.query_workspace,
+                workspace_id=self._workspace_id,
+                query=kql,
+                timespan=delta,
+            )
+            if result.status != LogsQueryStatus.SUCCESS or not result.tables:
+                return []
+        except Exception as exc:
+            log.warning("azure.get_traces.error", service=service, error=str(exc))
+            return []
+
+        traces: list[Trace] = []
+        table = result.tables[0]
+        cols = [c.name for c in table.columns]
+
+        def _col(row, name: str, default=None):
+            try:
+                return row[cols.index(name)]
+            except (ValueError, IndexError):
+                return default
+
+        for row in table.rows:
+            try:
+                op_id = str(_col(row, "OperationId") or "")
+                op_name = str(_col(row, "Name") or "unknown")
+                dur_ms = float(_col(row, "DurationMs") or 0)
+                span_count = int(_col(row, "SpanCount") or 1)
+                has_error = bool(_col(row, "HasError") or False)
+                traces.append(Trace(
+                    trace_id=op_id[:16] if op_id else op_name[:16],
+                    service=service,
+                    operation_name=op_name,
+                    start_time=datetime.now(timezone.utc),
+                    duration_ms=dur_ms,
+                    span_count=span_count,
+                    status="error" if has_error else "ok",
+                ))
+            except Exception:
+                continue
+        return traces
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
 

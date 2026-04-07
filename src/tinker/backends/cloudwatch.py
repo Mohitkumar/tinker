@@ -9,7 +9,7 @@ from typing import Any
 import boto3
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError, Trace, TraceSpan
 from tinker.config import settings
 
 log = structlog.get_logger(__name__)
@@ -162,6 +162,74 @@ class CloudWatchBackend(ObservabilityBackend):
             MetricPoint(timestamp=ts, value=val, unit=results.get("Label", ""))
             for ts, val in zip(results["Timestamps"], results["Values"])
         ]
+
+    # ── Traces via AWS X-Ray ──────────────────────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch recent traces from AWS X-Ray for a service."""
+        from datetime import timedelta
+
+        unit = since[-1]
+        value = int(since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        end = datetime.now(timezone.utc)
+        start = end - delta
+
+        xray = self._logs._endpoint._endpoint_prefix  # reuse session
+        # Build a fresh X-Ray client from the same boto3 session
+        import boto3 as _boto3
+        session = _boto3.Session(
+            profile_name=getattr(self, "_profile", None),
+            region_name=self._logs.meta.region_name,
+        )
+        xray_client = session.client("xray")
+
+        filter_expr = f'annotation.aws.service_name = "{service}"'
+        if tags:
+            for k, v in tags.items():
+                filter_expr += f' AND annotation.{k} = "{v}"'
+
+        try:
+            resp = await asyncio.to_thread(
+                xray_client.get_trace_summaries,
+                StartTime=start,
+                EndTime=end,
+                FilterExpression=filter_expr,
+                Sampling=False,
+            )
+        except Exception as exc:
+            log.warning("cloudwatch.get_traces.error", service=service, error=str(exc))
+            return []
+
+        traces: list[Trace] = []
+        for s in resp.get("TraceSummaries", [])[:limit]:
+            try:
+                trace_id = s.get("Id", "")
+                duration_ms = float(s.get("Duration", 0)) * 1000
+                start_dt = s.get("MatchedEventTime") or start
+                if not isinstance(start_dt, datetime):
+                    start_dt = datetime.now(timezone.utc)
+                has_error = bool(s.get("HasError") or s.get("HasFault"))
+                http = s.get("Http") or {}
+                op = http.get("HttpURL") or s.get("EntryPoint", {}).get("Name") or "unknown"
+                traces.append(Trace(
+                    trace_id=trace_id,
+                    service=service,
+                    operation_name=op,
+                    start_time=start_dt,
+                    duration_ms=duration_ms,
+                    span_count=len(s.get("ServiceIds", [])),
+                    status="error" if has_error else "ok",
+                ))
+            except Exception:
+                continue
+        return traces
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
 

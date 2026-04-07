@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend
+from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
 log = structlog.get_logger(__name__)
 
 
@@ -143,6 +143,87 @@ class GCPBackend(ObservabilityBackend):
                     )
                 )
         return points
+
+    # ── Traces via Cloud Trace ────────────────────────────────────────────────
+
+    async def get_traces(
+        self,
+        service: str,
+        since: str = "1h",
+        limit: int = 20,
+        tags: dict[str, str] | None = None,
+    ) -> list[Trace]:
+        """Fetch recent traces from GCP Cloud Trace."""
+        import asyncio
+
+        unit = since[-1]
+        value = int(since[:-1])
+        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        start = datetime.now(timezone.utc) - delta
+
+        try:
+            from google.cloud import trace_v2
+            client = trace_v2.TraceServiceClient()
+            project_name = f"projects/{self._project}"
+
+            filter_str = f'span:"{service}" AND +start_time>="{start.isoformat()}"'
+            if tags:
+                for k, v in tags.items():
+                    filter_str += f' AND label:"{k}:{v}"'
+
+            raw_traces = await asyncio.to_thread(
+                lambda: list(client.list_traces(
+                    request={"parent": project_name, "filter": filter_str, "page_size": limit}
+                ))
+            )
+        except Exception as exc:
+            log.warning("gcp.get_traces.error", service=service, error=str(exc))
+            return []
+
+        traces: list[Trace] = []
+        for t in raw_traces[:limit]:
+            spans = []
+            start_time = None
+            end_time = None
+            has_error = False
+
+            for s in t.spans:
+                try:
+                    s_start = s.start_time.ToDatetime(tzinfo=timezone.utc)
+                    s_end = s.end_time.ToDatetime(tzinfo=timezone.utc)
+                    dur_ms = (s_end - s_start).total_seconds() * 1000
+                    if start_time is None or s_start < start_time:
+                        start_time = s_start
+                    if end_time is None or s_end > end_time:
+                        end_time = s_end
+                    if s.status and s.status.code != 0:
+                        has_error = True
+                    spans.append(TraceSpan(
+                        span_id=s.span_id,
+                        operation_name=s.display_name.value if hasattr(s.display_name, "value") else str(s.display_name),
+                        service=service,
+                        start_time=s_start,
+                        duration_ms=dur_ms,
+                        status="error" if (s.status and s.status.code != 0) else "ok",
+                        parent_span_id=s.parent_span_id or "",
+                    ))
+                except Exception:
+                    continue
+
+            root_op = spans[0].operation_name if spans else "unknown"
+            total_ms = (end_time - start_time).total_seconds() * 1000 if start_time and end_time else 0.0
+            traces.append(Trace(
+                trace_id=t.name.split("/")[-1],
+                service=service,
+                operation_name=root_op,
+                start_time=start_time or datetime.now(timezone.utc),
+                duration_ms=total_ms,
+                span_count=len(spans),
+                status="error" if has_error else "ok",
+                spans=spans,
+            ))
+
+        return traces
 
     async def detect_anomalies(
         self,
