@@ -210,38 +210,46 @@ class InvestigateREPL:
             if cmd in ("quit", "q", "exit"):
                 console.print("[dim]Goodbye.[/dim]")
                 break
-            elif cmd in ("help", "?"):
-                console.print(Panel(_HELP, title="Commands", border_style="dim"))
-            elif cmd in ("list", "ls"):
-                if self._drill_group:
-                    self._print_entries(self._drill_group)
-                else:
-                    self._print_groups()
-            elif cmd in ("back", "b"):
-                self._drill_group = None
-                self._print_groups()
-            elif cmd in ("refresh", "r"):
-                await self._do_refresh()
-            elif cmd.startswith("filter"):
-                await self._do_filter(cmd)
-            elif cmd.startswith("logs"):
-                self._do_logs(cmd)
-            elif cmd.startswith("explain"):
-                await self._do_explain(cmd)
-            elif cmd.startswith("fix"):
-                await self._do_fix(cmd)
-            elif cmd == "approve":
-                await self._do_approve()
-            elif cmd == "session clean":
-                removed = self._db.clean_sessions()
-                console.print(f"[green]Cleaned {removed} old session(s).[/green]")
             else:
-                console.print(
-                    f"[red]Unknown command:[/red] {cmd!r}  "
-                    "(type [bold]help[/bold] for commands)"
-                )
+                try:
+                    await self._dispatch(cmd)
+                except Exception as exc:
+                    console.print(f"[red]Error:[/red] {exc}")
+                    log.exception("investigate_repl.command_error", cmd=cmd)
 
         self._db.close()
+
+    async def _dispatch(self, cmd: str) -> None:
+        if cmd in ("help", "?"):
+            console.print(Panel(_HELP, title="Commands", border_style="dim"))
+        elif cmd in ("list", "ls"):
+            if self._drill_group:
+                self._print_entries(self._drill_group)
+            else:
+                self._print_groups()
+        elif cmd in ("back", "b"):
+            self._drill_group = None
+            self._print_groups()
+        elif cmd in ("refresh", "r"):
+            await self._do_refresh()
+        elif cmd.startswith("filter"):
+            await self._do_filter(cmd)
+        elif cmd.startswith("logs"):
+            self._do_logs(cmd)
+        elif cmd.startswith("explain"):
+            await self._do_explain(cmd)
+        elif cmd.startswith("fix"):
+            await self._do_fix(cmd)
+        elif cmd == "approve":
+            await self._do_approve()
+        elif cmd == "session clean":
+            removed = self._db.clean_sessions()
+            console.print(f"[green]Cleaned {removed} old session(s).[/green]")
+        else:
+            console.print(
+                f"[red]Unknown command:[/red] {cmd!r}  "
+                "(type [bold]help[/bold] for commands)"
+            )
 
     def _prompt(self) -> str:
         if self._drill_group:
@@ -425,8 +433,12 @@ class InvestigateREPL:
             console.print("[dim]Aborted.[/dim]")
             return
 
-        with console.status("[bold green]Applying fix on server...[/bold green]"):
-            result = await self._client.approve_fix(file_changes, explanation, self._service)
+        try:
+            with console.status("[bold green]Applying fix on server...[/bold green]"):
+                result = await self._client.approve_fix(file_changes, explanation, self._service)
+        except Exception as exc:
+            console.print(f"[red]Server error:[/red] {exc}")
+            return
 
         self._pending_fix = None
         self._persist_session()
