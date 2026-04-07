@@ -139,12 +139,11 @@ def translate(
     stream_str = ", ".join(f'{k}="{v}"' for k, v in stream.items())
     logql = "{" + stream_str + "}"
 
-    # Label regexp matchers (after stream selector, before line filters)
+    # Label regexp matchers (after stream selector, before line filters).
+    # Label filter regexps must use double quotes — backticks are only valid for line filters.
     for k, pattern in acc.label_regexps.items():
-        if k == "level" and k not in stream:
-            logql += f' | level=~`{pattern}`'
-        elif k not in stream:
-            logql += f' | {k}=~`{pattern}`'
+        if k not in stream:
+            logql += f' | {k}=~"{pattern}"'
 
     # Logfmt field filters
     if acc.logfmt_filters:
