@@ -633,6 +633,7 @@ SLACK_SIGNING_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # ~/.tinker/config.toml
 [slack]
 bot_token      = "env:SLACK_BOT_TOKEN"
+signing_secret = "env:SLACK_SIGNING_SECRET"
 alerts_channel = "#incidents"
 ```
 
@@ -683,6 +684,7 @@ api_keys = [{hash = "<sha256>", subject = "alice", roles = ["oncall"]}]
 
 [slack]
 bot_token      = "env:SLACK_BOT_TOKEN"
+signing_secret = "env:SLACK_SIGNING_SECRET"
 alerts_channel = "#incidents"
 
 [github]

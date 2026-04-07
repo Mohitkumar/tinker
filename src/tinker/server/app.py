@@ -91,19 +91,32 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(watches_router)
 
-    # ── Slack bot (mounted as ASGI sub-app) ───────────────────────────────────
-    try:
-        from tinker import toml_config as tc
-        slack = tc.get().slack
-        if not slack.bot_token or not slack.signing_secret:
-            raise RuntimeError("slack.bot_token and slack.signing_secret must be set in config.toml [slack]")
-        from tinker.interfaces.slack_bot import build_app as build_bolt_app
-        from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
-        slack_handler = AsyncSlackRequestHandler(build_bolt_app())
-        app.mount("/slack", slack_handler)
-        log.info("slack.mounted")
-    except Exception:
-        log.warning("slack.not_configured")
+    # ── Slack bot (/slack/events receives all Events API + slash commands) ───────
+    # Route is always registered so Slack URL verification works.
+    # The handler initialises lazily on first request so startup never fails.
+    _slack_handler_cache: list = []  # mutable cell to hold the handler singleton
+
+    @app.post("/slack/events", tags=["slack"], include_in_schema=False)
+    async def slack_events(request: Request):
+        if not _slack_handler_cache:
+            try:
+                from tinker import toml_config as tc
+                slack_cfg = tc.get().slack
+                if not slack_cfg.bot_token or not slack_cfg.signing_secret:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=503,
+                        content={"detail": "Slack not configured (bot_token / signing_secret missing)"},
+                    )
+                from tinker.interfaces.slack_bot import build_app as build_bolt_app
+                from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+                _slack_handler_cache.append(AsyncSlackRequestHandler(build_bolt_app()))
+                log.info("slack.handler_ready")
+            except Exception as exc:
+                log.exception("slack.init_failed")
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=503, content={"detail": f"Slack init error: {exc}"})
+        return await _slack_handler_cache[0].handle(request)
 
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health", tags=["ops"])
