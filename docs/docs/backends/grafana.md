@@ -1,0 +1,170 @@
+---
+sidebar_position: 5
+title: Grafana Stack
+---
+
+# Grafana Stack Backend
+
+Uses Loki (LogQL) for logs, Prometheus (PromQL) for metrics, and Grafana Tempo for distributed tracing. The best choice for self-hosted environments and local development.
+
+```bash
+TINKER_BACKEND=grafana
+```
+
+---
+
+## Components
+
+| Component | Purpose | Default port |
+|---|---|---|
+| Loki | Log aggregation | 3100 |
+| Prometheus | Metrics storage | 9090 |
+| Tempo | Distributed tracing | 3200 |
+| Grafana UI | Visualization | 3000 |
+
+All four are included in the Tinker Docker Compose stack.
+
+---
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `GRAFANA_LOKI_URL` | Yes | Loki base URL (e.g. `http://loki:3100`) |
+| `GRAFANA_PROMETHEUS_URL` | Yes | Prometheus base URL (e.g. `http://prometheus:9090`) |
+| `GRAFANA_TEMPO_URL` | No | Tempo base URL (e.g. `http://tempo:3200`) |
+| `GRAFANA_API_KEY` | No | Grafana API key (for managed Grafana Cloud) |
+
+---
+
+## Profile configuration
+
+```toml title="~/.tinker/config.toml"
+[profiles.default]
+backend        = "grafana"
+loki_url       = "env:GRAFANA_LOKI_URL"
+prometheus_url = "env:GRAFANA_PROMETHEUS_URL"
+tempo_url      = "env:GRAFANA_TEMPO_URL"
+```
+
+---
+
+## Log query (LogQL)
+
+Tinker constructs LogQL queries against Loki:
+
+```logql
+{app="payments-api"} |= "ERROR" | json | line_format "{{.level}} {{.message}}"
+```
+
+The `app` label must match your Loki label configuration. Tinker uses the service name as the label value.
+
+### Label configuration
+
+Ensure your log shipper (Promtail, Alloy, Fluent Bit) sets an `app` or `service_name` label:
+
+```yaml title="promtail-config.yml"
+scrape_configs:
+  - job_name: payments-api
+    static_configs:
+      - targets: [localhost]
+        labels:
+          app: payments-api
+          __path__: /var/log/payments-api/*.log
+```
+
+---
+
+## Metrics (PromQL)
+
+Tinker queries Prometheus using PromQL:
+
+```promql
+rate(http_requests_total{job="payments-api"}[5m])
+```
+
+The service name is matched against the `job` label. Ensure your scrape config sets the `job` label to match the Tinker service name.
+
+### Common Prometheus metrics
+
+```promql
+# Request rate
+rate(http_requests_total[5m])
+
+# Error rate
+rate(http_requests_total{status=~"5.."}[5m])
+
+# P99 latency
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+
+# Memory usage
+process_resident_memory_bytes
+```
+
+---
+
+## Distributed tracing (Tempo)
+
+Tinker queries Tempo's HTTP API to search traces:
+
+```http
+GET /api/search?service.name=payments-api&start=1712498400&end=1712502000
+```
+
+Traces must be sent to Tempo. Most OpenTelemetry SDKs can export to Tempo via OTLP:
+
+```yaml title="otel-collector-config.yml"
+exporters:
+  otlp:
+    endpoint: http://tempo:4317
+```
+
+Or configure the OTLP SDK directly:
+
+```python
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+exporter = OTLPSpanExporter(endpoint="http://tempo:4317", insecure=True)
+```
+
+---
+
+## Local development (Docker Compose)
+
+The fastest way to run a full Grafana stack locally:
+
+```bash
+git clone https://github.com/your-org/tinker
+cd tinker
+cp .env.example .env
+# Add ANTHROPIC_API_KEY to .env
+
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+Services:
+- Tinker: http://localhost:8000
+- Grafana UI: http://localhost:3000
+- Prometheus: http://localhost:9090
+- Loki: http://localhost:3100
+
+```bash
+# Generate test traffic
+cd local-dev && ./generate_traffic.sh incident
+
+# Run Tinker
+tinker anomaly payments-api --since 5m
+```
+
+---
+
+## Grafana Cloud
+
+For Grafana Cloud (managed), set:
+
+```bash
+GRAFANA_LOKI_URL=https://logs-prod-xxx.grafana.net
+GRAFANA_PROMETHEUS_URL=https://prometheus-prod-xxx.grafana.net
+GRAFANA_API_KEY=glsa_xxxxxxxxxxxx
+```
+
+Authentication is via the `Authorization: Bearer <api-key>` header on all Loki and Prometheus requests.

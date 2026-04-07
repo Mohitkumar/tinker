@@ -10,7 +10,7 @@ Open-source AI-powered observability and incident response agent. Connects to yo
 ┌──────────────────────────────────────────────────────────────────┐
 │  Tinker Server  (runs anywhere with cloud access)                │
 │                                                                  │
-│  tinker server  ──► FastAPI on :8000                            │
+│  tinker server  ──► FastAPI on :8000                             │
 │                                                                  │
 │  POST /api/v1/rca        full AI root-cause analysis (SSE)       │
 │  POST /api/v1/anomalies  anomaly detection                       │
@@ -22,15 +22,15 @@ Open-source AI-powered observability and incident response agent. Connects to yo
 │  GET  /mcp/sse           Remote MCP for Claude Code              │
 │  POST /slack/events      Slack bot                               │
 │                                                                  │
-│  Active profile → backend (cloudwatch|gcp|azure|grafana|…)      │
+│  Active profile → backend (cloudwatch|gcp|azure|grafana|…)       │
 │  Credentials → IAM role / Workload Identity / Managed Identity   │
 │  Zero long-lived cloud keys on the server.                       │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │  API key  (TINKER_API_TOKEN)
-      ┌────────────┼──────────────────┐
-      ▼            ▼                  ▼
-   CLI          Claude Code        Slack Bot
-  (thin)        remote MCP         (webhook → server)
+└───────────────────────────────┬──────────────────────────────────┘
+                                │  API key  (TINKER_API_TOKEN)
+                   ┌────────────┼──────────────────┐
+                   ▼            ▼                  ▼
+                  CLI          Claude Code        Slack Bot
+                 (thin)        Remote MCP         (webhook → server)
 ```
 
 The server is the single point of credential trust. Cloud credentials (IAM role, Workload Identity, Managed Identity) stay on the server machine. The CLI and Slack bot authenticate with a short API token — they never touch cloud credentials.
