@@ -192,6 +192,21 @@ class InvestigateREPL:
         )
         console.print("[dim]Type [bold]help[/bold] for commands.[/dim]\n")
 
+        # Enable readline history so up/down arrows work in the REPL.
+        try:
+            import readline as _rl
+            import os as _os
+            _hist = _os.path.expanduser("~/.tinker/repl_history")
+            try:
+                _rl.read_history_file(_hist)
+            except FileNotFoundError:
+                pass
+            _rl.set_history_length(500)
+            import atexit as _atexit
+            _atexit.register(_rl.write_history_file, _hist)
+        except ImportError:
+            pass  # Windows — readline not available, graceful degradation
+
         await self._do_refresh()
 
         loop = asyncio.get_event_loop()
