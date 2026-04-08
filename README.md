@@ -97,4 +97,4 @@ For the security model, credential design, and architecture decisions, see [Secu
 
 ## License
 
-[Apache 2.0](LICENSE)
+[MIT](LICENSE)
