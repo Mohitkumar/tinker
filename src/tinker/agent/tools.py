@@ -25,6 +25,7 @@ log = structlog.get_logger(__name__)
 
 # ── Tool schema definitions (OpenAI function-call format) ─────────────────────
 
+
 def _fn(name: str, description: str, parameters: dict[str, Any]) -> dict[str, Any]:
     """Shorthand for building an OpenAI function tool definition."""
     return {
@@ -178,6 +179,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
+
 class ToolDispatcher:
     """Validates guardrails then routes tool calls to their implementations."""
 
@@ -290,6 +292,7 @@ class ToolDispatcher:
 
     def _get_file(self, inp: dict[str, Any]) -> str:
         import os
+
         repo = self._repo_path or "."
         path = os.path.join(repo, inp["path"].lstrip("/"))
         try:
@@ -301,15 +304,29 @@ class ToolDispatcher:
     def _glob_files(self, inp: dict[str, Any]) -> str:
         import glob as glob_mod
         import os
+
         repo = self._repo_path or "."
         pattern = os.path.join(repo, inp["pattern"].lstrip("/"))
         max_r = inp.get("max_results", 30)
         BINARY_EXTS = {
-            ".pyc", ".so", ".o", ".a", ".dylib", ".dll", ".exe",
-            ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".tar", ".gz",
+            ".pyc",
+            ".so",
+            ".o",
+            ".a",
+            ".dylib",
+            ".dll",
+            ".exe",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".pdf",
+            ".zip",
+            ".tar",
+            ".gz",
         }
         matches = [
-            m[len(os.path.abspath(repo)) + 1:]
+            m[len(os.path.abspath(repo)) + 1 :]
             for m in glob_mod.glob(pattern, recursive=True)
             if os.path.isfile(m) and os.path.splitext(m)[1].lower() not in BINARY_EXTS
         ]
@@ -317,12 +334,15 @@ class ToolDispatcher:
 
     def _search_code(self, inp: dict[str, Any]) -> str:
         import subprocess
+
         repo = self._repo_path or "."
         result = subprocess.run(
             [
                 "rg",
-                "--glob", inp.get("file_glob", "**/*.py"),
-                "--context", str(inp.get("context_lines", 3)),
+                "--glob",
+                inp.get("file_glob", "**/*.py"),
+                "--context",
+                str(inp.get("context_lines", 3)),
                 inp["pattern"],
                 repo,
             ],
@@ -333,6 +353,7 @@ class ToolDispatcher:
 
     def _get_recent_commits(self, inp: dict[str, Any]) -> list[dict[str, str]]:
         from tinker.code.repo import RepoClient
+
         return RepoClient(self._repo_path or ".").recent_commits(
             service_path=inp.get("path", "."),
             n=inp.get("n", 10),
@@ -349,8 +370,7 @@ class ToolDispatcher:
             "status": "pending_approval",
             "incident_id": incident_id,
             "message": (
-                f"Fix staged for incident {incident_id}. "
-                "Run /tinker-approve or --approve to apply."
+                f"Fix staged for incident {incident_id}. Run /tinker-approve or --approve to apply."
             ),
         }
 

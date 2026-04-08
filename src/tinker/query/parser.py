@@ -32,13 +32,13 @@ from tinker.query.ast import (
 # ── Tokeniser ─────────────────────────────────────────────────────────────────
 
 _TOKEN_RE = re.compile(
-    r'"[^"]*"'          # quoted string
-    r"|'[^']*'"         # single-quoted string
+    r'"[^"]*"'  # quoted string
+    r"|'[^']*'"  # single-quoted string
     r"|\bAND\b"
     r"|\bOR\b"
     r"|\bNOT\b"
-    r"|[():]"           # parens and colon
-    r"|[^\s():\"']+",   # bare word (includes field names and values)
+    r"|[():]"  # parens and colon
+    r"|[^\s():\"']+",  # bare word (includes field names and values)
     re.IGNORECASE,
 )
 
@@ -48,6 +48,7 @@ def _tokenise(text: str) -> list[str]:
 
 
 # ── Parser ────────────────────────────────────────────────────────────────────
+
 
 class _Parser:
     def __init__(self, tokens: list[str]) -> None:
@@ -156,6 +157,7 @@ class _Parser:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def parse(query: str) -> QueryNode:
     """Parse a Tinker unified query string into an AST.

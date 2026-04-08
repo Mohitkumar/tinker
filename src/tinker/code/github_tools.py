@@ -49,6 +49,7 @@ def _resolve_path(repo: "Repository", path: str) -> str | None:
     Returns the resolved repo path, or None if no match.
     """
     import os as _os
+
     all_paths = _repo_file_tree(repo)
 
     # 1. Exact
@@ -73,8 +74,10 @@ def _resolve_path(repo: "Repository", path: str) -> str | None:
         # Multiple files with same name — pick the one whose directory components
         # overlap most with the requested path
         requested_parts = set(clean.replace("\\", "/").split("/"))
+
         def _overlap(p: str) -> int:
             return len(set(p.split("/")) & requested_parts)
+
         return max(name_matches, key=_overlap)
 
     return None
@@ -84,11 +87,11 @@ def _normalise_repo(repo: str) -> str:
     """Accept owner/repo or a full GitHub URL — always return owner/repo."""
     repo = repo.strip().rstrip("/")
     if repo.startswith("https://github.com/"):
-        repo = repo[len("https://github.com/"):]
+        repo = repo[len("https://github.com/") :]
     elif repo.startswith("http://github.com/"):
-        repo = repo[len("http://github.com/"):]
+        repo = repo[len("http://github.com/") :]
     elif repo.startswith("git@github.com:"):
-        repo = repo[len("git@github.com:"):].removesuffix(".git")
+        repo = repo[len("git@github.com:") :].removesuffix(".git")
     return repo
 
 
@@ -125,7 +128,7 @@ class GitHubCodeProvider:
         if not repo_name:
             raise RuntimeError(
                 "No GitHub repository configured. "
-                "Set github.default_repo = \"owner/repo\" in config.toml [github]."
+                'Set github.default_repo = "owner/repo" in config.toml [github].'
             )
 
         # Accept full GitHub URLs — strip to owner/repo
@@ -160,9 +163,8 @@ class GitHubCodeProvider:
             content = self._repo.get_contents(resolved, **kwargs)
             if isinstance(content, list):
                 return "(directory listing)\n" + "\n".join(c.path for c in content)
-            return (
-                f"# resolved '{path}' → '{resolved}'\n"
-                + content.decoded_content.decode("utf-8", errors="replace")
+            return f"# resolved '{path}' → '{resolved}'\n" + content.decoded_content.decode(
+                "utf-8", errors="replace"
             )
         except Exception as exc:
             return f"(error reading resolved path '{resolved}': {exc})"
@@ -253,6 +255,7 @@ class GitHubCodeProvider:
 
 
 # ── Diff helper ───────────────────────────────────────────────────────────────
+
 
 def compute_diff(path: str, old_content: str, new_content: str) -> str:
     """Return a unified diff string for display."""

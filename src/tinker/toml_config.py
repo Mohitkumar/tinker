@@ -32,6 +32,7 @@ _CONFIG_PATH = Path.home() / ".tinkr" / "config.toml"
 
 # ── Data models ───────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ServerSection:
     host: str = "0.0.0.0"
@@ -60,17 +61,19 @@ class AuthSection:
 @dataclass
 class ServiceConfig:
     """Per-service config (e.g. [services.payments-api])."""
-    backend: str | None = None          # named backend; None → use default
-    log_format: str = "label"           # label | json | logfmt | pattern
-    log_level_field: str = "level"      # field name that holds the level value
-    repo: str | None = None             # override github repo (owner/repo)
-    resource_type: str | None = None    # ecs | lambda | eks | cloudrun | aks …
+
+    backend: str | None = None  # named backend; None → use default
+    log_format: str = "label"  # label | json | logfmt | pattern
+    log_level_field: str = "level"  # field name that holds the level value
+    repo: str | None = None  # override github repo (owner/repo)
+    resource_type: str | None = None  # ecs | lambda | eks | cloudrun | aks …
 
 
 @dataclass
 class NotifierConfig:
     """Config for one named notifier (e.g. [notifiers.default])."""
-    type: str                            # slack | discord | webhook
+
+    type: str  # slack | discord | webhook
     options: dict[str, str] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -84,8 +87,9 @@ class ProfileConfig:
     A profile bundles a backend with its services and notifiers so multiple
     cloud accounts can coexist in a single config.toml.
     """
-    backend: str                                                  # cloudwatch | grafana | ...
-    options: dict[str, str] = field(default_factory=dict)         # region, url, api_key, …
+
+    backend: str  # cloudwatch | grafana | ...
+    options: dict[str, str] = field(default_factory=dict)  # region, url, api_key, …
     services: dict[str, ServiceConfig] = field(default_factory=dict)
     notifiers: dict[str, NotifierConfig] = field(default_factory=dict)
 
@@ -104,7 +108,7 @@ class SlackSection:
 @dataclass
 class GitHubSection:
     token: str | None = None
-    default_repo: str | None = None     # owner/repo
+    default_repo: str | None = None  # owner/repo
 
 
 @dataclass
@@ -116,7 +120,6 @@ class TomlConfig:
     active_profile: str | None = None
     slack: SlackSection = field(default_factory=SlackSection)
     github: GitHubSection = field(default_factory=GitHubSection)
-
 
     def active_profile_config(self) -> ProfileConfig | None:
         """Return the active ProfileConfig, or None if no profiles are defined."""
@@ -142,6 +145,7 @@ class TomlConfig:
 
 # ── Secret resolution ─────────────────────────────────────────────────────────
 
+
 def _resolve(value: Any) -> Any:
     """Resolve ``env:VAR`` references; pass other values through unchanged."""
     if not isinstance(value, str):
@@ -160,6 +164,7 @@ def _resolve_dict(d: dict) -> dict:
 
 
 # ── Loader ────────────────────────────────────────────────────────────────────
+
 
 def _load_env_file_into_environ() -> None:
     """Load ~/.tinkr/.env into os.environ so env: references resolve correctly.
@@ -245,8 +250,7 @@ def load(path: Path = _CONFIG_PATH) -> TomlConfig:
         # Scalar options: everything except reserved structural keys
         _reserved = {"backend", "type", "services", "notifiers"}
         options = {
-            k: _resolve(v) for k, v in p.items()
-            if k not in _reserved and not isinstance(v, dict)
+            k: _resolve(v) for k, v in p.items() if k not in _reserved and not isinstance(v, dict)
         }
         # Per-profile services
         profile_services: dict[str, ServiceConfig] = {}
@@ -288,7 +292,6 @@ def load(path: Path = _CONFIG_PATH) -> TomlConfig:
             token=_resolve(gh.get("token")),
             default_repo=gh.get("default_repo"),
         )
-
 
     log.info(
         "toml_config.loaded",

@@ -20,6 +20,7 @@ class TestAgentSession:
 
     def test_grant_approval(self):
         from tinker.agent.guardrails import GuardRailChain
+
         session = AgentSession()
         chain = GuardRailChain()
         session.grant_approval("apply_fix", "bob", chain)

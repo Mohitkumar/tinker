@@ -73,6 +73,7 @@ class TinkerDB:
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is None:
             from tinker.config import settings
+
             env_path = getattr(settings, "tinker_db_path", None)
             db_path = Path(env_path) if env_path else _default_db_path()
         self._path = Path(db_path)
@@ -162,9 +163,7 @@ class TinkerDB:
         return watch_id
 
     def get_watch(self, watch_id: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM watches WHERE watch_id = ?", (watch_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM watches WHERE watch_id = ?", (watch_id,)).fetchone()
         return dict(row) if row else None
 
     def list_watches(self, status: str | None = None) -> list[dict]:
@@ -174,9 +173,7 @@ class TinkerDB:
                 (status,),
             ).fetchall()
         else:
-            rows = self._conn.execute(
-                "SELECT * FROM watches ORDER BY started_at DESC"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM watches ORDER BY started_at DESC").fetchall()
         return [dict(r) for r in rows]
 
     def update_watch(self, watch_id: str, **kwargs: Any) -> None:
@@ -209,9 +206,7 @@ class TinkerDB:
         return True
 
     def clean_watches(self) -> int:
-        cur = self._conn.execute(
-            "DELETE FROM watches WHERE status IN ('stopped', 'dead')"
-        )
+        cur = self._conn.execute("DELETE FROM watches WHERE status IN ('stopped', 'dead')")
         self._conn.commit()
         return cur.rowcount
 
@@ -279,6 +274,7 @@ class TinkerDB:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()

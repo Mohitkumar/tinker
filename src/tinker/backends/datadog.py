@@ -37,7 +37,14 @@ from typing import Any
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    Trace,
+    TraceSpan,
+)
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -59,8 +66,12 @@ class DatadogBackend(ObservabilityBackend):
 
         self._base_url = f"https://api.{site}"
         self._headers = {
-            "DD-API-KEY": api_key.get_secret_value() if hasattr(api_key, "get_secret_value") else str(api_key),
-            "DD-APPLICATION-KEY": app_key.get_secret_value() if hasattr(app_key, "get_secret_value") else str(app_key),
+            "DD-API-KEY": api_key.get_secret_value()
+            if hasattr(api_key, "get_secret_value")
+            else str(api_key),
+            "DD-APPLICATION-KEY": app_key.get_secret_value()
+            if hasattr(app_key, "get_secret_value")
+            else str(app_key),
             "Content-Type": "application/json",
         }
 
@@ -86,6 +97,7 @@ class DatadogBackend(ObservabilityBackend):
             dd_query = query
         else:
             from tinker.query import parse_query, translate_for
+
             ast = parse_query(query)
             dd_query = translate_for("datadog", ast, service=service)
 
@@ -122,9 +134,14 @@ class DatadogBackend(ObservabilityBackend):
 
         # Datadog status → standard level
         status_map = {
-            "debug": "DEBUG", "info": "INFO", "warn": "WARN",
-            "warning": "WARN", "error": "ERROR", "critical": "CRITICAL",
-            "emergency": "CRITICAL", "alert": "CRITICAL",
+            "debug": "DEBUG",
+            "info": "INFO",
+            "warn": "WARN",
+            "warning": "WARN",
+            "error": "ERROR",
+            "critical": "CRITICAL",
+            "emergency": "CRITICAL",
+            "alert": "CRITICAL",
         }
         status = str(attrs.get("status", "info")).lower()
         level = status_map.get(status, "INFO")
@@ -259,15 +276,17 @@ class DatadogBackend(ObservabilityBackend):
                 duration_ns = float(attrs.get("duration", 0))
                 duration_ms = duration_ns / 1e6
                 status = "error" if attrs.get("status", "ok") in ("error", "fail") else "ok"
-                traces.append(Trace(
-                    trace_id=str(item.get("id", ""))[:16],
-                    service=service,
-                    operation_name=resource_name,
-                    start_time=start_dt,
-                    duration_ms=duration_ms,
-                    span_count=int(attrs.get("span_count") or 1),
-                    status=status,
-                ))
+                traces.append(
+                    Trace(
+                        trace_id=str(item.get("id", ""))[:16],
+                        service=service,
+                        operation_name=resource_name,
+                        start_time=start_dt,
+                        duration_ms=duration_ms,
+                        span_count=int(attrs.get("span_count") or 1),
+                        status=status,
+                    )
+                )
             except Exception:
                 continue
         return traces

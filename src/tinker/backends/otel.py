@@ -31,7 +31,14 @@ from urllib.parse import urlencode
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    Trace,
+    TraceSpan,
+)
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -92,7 +99,12 @@ class OTelBackend(ObservabilityBackend):
                             "bool": {
                                 "should": [
                                     {"match": {"body": query}},
-                                    {"query_string": {"query": query, "fields": ["body", "attributes.*"]}},
+                                    {
+                                        "query_string": {
+                                            "query": query,
+                                            "fields": ["body", "attributes.*"],
+                                        }
+                                    },
                                 ]
                             }
                         },
@@ -173,7 +185,7 @@ class OTelBackend(ObservabilityBackend):
         # Build PromQL selector
         labels = {**(dimensions or {}), "service_name": service}
         label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
-        promql = f'{metric_name}{{{label_str}}}'
+        promql = f"{metric_name}{{{label_str}}}"
 
         params = {
             "query": promql,
@@ -218,9 +230,14 @@ class OTelBackend(ObservabilityBackend):
             return []
 
         from datetime import timedelta
+
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
         end = datetime.now(timezone.utc)
         start = end - delta
 
@@ -237,8 +254,15 @@ class OTelBackend(ObservabilityBackend):
         body: dict = {
             "size": limit,
             "sort": [{"startTime": {"order": "desc"}}],
-            "_source": ["traceId", "name", "startTime", "endTime", "status.code",
-                        "resource.attributes.service.name", "spanId"],
+            "_source": [
+                "traceId",
+                "name",
+                "startTime",
+                "endTime",
+                "status.code",
+                "resource.attributes.service.name",
+                "spanId",
+            ],
             "query": {"bool": {"must": must}},
         }
 
@@ -268,15 +292,17 @@ class OTelBackend(ObservabilityBackend):
                     start_dt = datetime.now(timezone.utc)
                     dur_ms = 0.0
                 status_code = (src.get("status") or {}).get("code", "STATUS_CODE_UNSET")
-                traces.append(Trace(
-                    trace_id=(src.get("traceId") or hit["_id"])[:16],
-                    service=service,
-                    operation_name=src.get("name", "unknown"),
-                    start_time=start_dt,
-                    duration_ms=dur_ms,
-                    span_count=1,
-                    status="error" if status_code == "STATUS_CODE_ERROR" else "ok",
-                ))
+                traces.append(
+                    Trace(
+                        trace_id=(src.get("traceId") or hit["_id"])[:16],
+                        service=service,
+                        operation_name=src.get("name", "unknown"),
+                        start_time=start_dt,
+                        duration_ms=dur_ms,
+                        span_count=1,
+                        status="error" if status_code == "STATUS_CODE_ERROR" else "ok",
+                    )
+                )
             except Exception:
                 continue
         return traces

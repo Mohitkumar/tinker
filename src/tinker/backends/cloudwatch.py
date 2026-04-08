@@ -9,7 +9,15 @@ from typing import Any
 import boto3
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    ServiceNotFoundError,
+    Trace,
+    TraceSpan,
+)
 from tinker.config import settings
 
 log = structlog.get_logger(__name__)
@@ -73,7 +81,9 @@ class CloudWatchBackend(ObservabilityBackend):
                 log.warning("cloudwatch.no_log_groups_found", service=service)
                 raise ServiceNotFoundError(service, backend="CloudWatch")
 
-        log.debug("cloudwatch.query_logs", service=service, log_groups=log_groups, query=insights_query)
+        log.debug(
+            "cloudwatch.query_logs", service=service, log_groups=log_groups, query=insights_query
+        )
 
         start_kwargs: dict[str, Any] = {
             "startTime": int(start.timestamp()),
@@ -102,7 +112,9 @@ class CloudWatchBackend(ObservabilityBackend):
 
         if result["status"] != "Complete":
             log.warning("cloudwatch.query_failed", status=result["status"], query_id=query_id)
-            raise RuntimeError(f"CloudWatch Logs Insights query {result['status'].lower()} (id={query_id})")
+            raise RuntimeError(
+                f"CloudWatch Logs Insights query {result['status'].lower()} (id={query_id})"
+            )
 
         return [self._parse_log_record(r) for r in result.get("results", [])]
 
@@ -177,13 +189,18 @@ class CloudWatchBackend(ObservabilityBackend):
 
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
         end = datetime.now(timezone.utc)
         start = end - delta
 
         xray = self._logs._endpoint._endpoint_prefix  # reuse session
         # Build a fresh X-Ray client from the same boto3 session
         import boto3 as _boto3
+
         session = _boto3.Session(
             profile_name=getattr(self, "_profile", None),
             region_name=self._logs.meta.region_name,
@@ -218,15 +235,17 @@ class CloudWatchBackend(ObservabilityBackend):
                 has_error = bool(s.get("HasError") or s.get("HasFault"))
                 http = s.get("Http") or {}
                 op = http.get("HttpURL") or s.get("EntryPoint", {}).get("Name") or "unknown"
-                traces.append(Trace(
-                    trace_id=trace_id,
-                    service=service,
-                    operation_name=op,
-                    start_time=start_dt,
-                    duration_ms=duration_ms,
-                    span_count=len(s.get("ServiceIds", [])),
-                    status="error" if has_error else "ok",
-                ))
+                traces.append(
+                    Trace(
+                        trace_id=trace_id,
+                        service=service,
+                        operation_name=op,
+                        start_time=start_dt,
+                        duration_ms=duration_ms,
+                        span_count=len(s.get("ServiceIds", [])),
+                        status="error" if has_error else "ok",
+                    )
+                )
             except Exception:
                 continue
         return traces

@@ -63,20 +63,20 @@ log = structlog.get_logger(__name__)
 console = Console()
 
 _LEVEL_STYLE: dict[str, str] = {
-    "ERROR":    "red",
+    "ERROR": "red",
     "CRITICAL": "bold red",
-    "WARN":     "yellow",
-    "WARNING":  "yellow",
-    "INFO":     "green",
-    "DEBUG":    "dim",
+    "WARN": "yellow",
+    "WARNING": "yellow",
+    "INFO": "green",
+    "DEBUG": "dim",
 }
 
 _CLASS_STYLE: dict[str, str] = {
-    "transient":        "yellow",
-    "logic_bug":        "red",
-    "config_error":     "magenta",
-    "dependency_down":  "bold red",
-    "unknown":          "dim",
+    "transient": "yellow",
+    "logic_bug": "red",
+    "config_error": "magenta",
+    "dependency_down": "bold red",
+    "unknown": "dim",
 }
 
 _HELP = textwrap.dedent("""
@@ -97,22 +97,25 @@ _HELP = textwrap.dedent("""
 
 # ── Data model ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ErrorGroup:
     """One deduplicated error pattern and its representative logs."""
-    template: str                       # normalised message template
+
+    template: str  # normalised message template
     count: int
-    level: str                          # dominant log level
+    level: str  # dominant log level
     first_seen: datetime | None
     last_seen: datetime | None
-    entries: list[LogEntry] = field(default_factory=list)   # representative logs
+    entries: list[LogEntry] = field(default_factory=list)  # representative logs
     stack_traces: list[dict] = field(default_factory=list)  # from LogSummarizer
-    summary: dict = field(default_factory=dict)             # full summary dict
+    summary: dict = field(default_factory=dict)  # full summary dict
 
 
 def _build_groups(logs: list[LogEntry], window_minutes: int) -> list[ErrorGroup]:
     """Run LogSummarizer over *logs* and convert into ErrorGroup list."""
     from tinker.agent.summarizer import LogSummarizer
+
     summarizer = LogSummarizer()
     representative, summary = summarizer.summarize(logs, window_minutes=window_minutes)
 
@@ -125,34 +128,35 @@ def _build_groups(logs: list[LogEntry], window_minutes: int) -> list[ErrorGroup]
         rep_entry = rep_by_tmpl.get(p.get("example", ""))
 
         # Find all entries matching this template to determine level / timestamps
-        matching = [
-            e for e in logs
-            if _normalize_msg(e.message) == tmpl
-        ]
+        matching = [e for e in logs if _normalize_msg(e.message) == tmpl]
         levels = [e.level.upper() for e in matching if e.level]
         dominant_level = max(set(levels), key=levels.count) if levels else "ERROR"
         timestamps = sorted(e.timestamp for e in matching if e.timestamp)
 
-        groups.append(ErrorGroup(
-            template=tmpl,
-            count=p["count"],
-            level=dominant_level,
-            first_seen=timestamps[0] if timestamps else None,
-            last_seen=timestamps[-1] if timestamps else None,
-            entries=matching[:50],   # keep up to 50 raw entries for drill-down
-            stack_traces=summary.get("stack_traces", []),
-            summary=summary,
-        ))
+        groups.append(
+            ErrorGroup(
+                template=tmpl,
+                count=p["count"],
+                level=dominant_level,
+                first_seen=timestamps[0] if timestamps else None,
+                last_seen=timestamps[-1] if timestamps else None,
+                entries=matching[:50],  # keep up to 50 raw entries for drill-down
+                stack_traces=summary.get("stack_traces", []),
+                summary=summary,
+            )
+        )
 
     return sorted(groups, key=lambda g: g.count, reverse=True)
 
 
 def _normalize_msg(msg: str) -> str:
     from tinker.agent.summarizer import _normalize_message
+
     return _normalize_message(msg or "")
 
 
 # ── REPL class ────────────────────────────────────────────────────────────────
+
 
 class InvestigateREPL:
     """Interactive two-level log investigation session."""
@@ -172,11 +176,12 @@ class InvestigateREPL:
         self._resource = resource
 
         self._groups: list[ErrorGroup] = []
-        self._drill_group: ErrorGroup | None = None   # set when in drill-down mode
+        self._drill_group: ErrorGroup | None = None  # set when in drill-down mode
         self._pending_fix: dict | None = None
         self._session_id: str | None = None
 
         from tinker.store.db import TinkerDB
+
         self._db = TinkerDB()
 
     # ── Public entry point ────────────────────────────────────────────────────
@@ -196,6 +201,7 @@ class InvestigateREPL:
         try:
             import readline as _rl
             import os as _os
+
             _hist = _os.path.expanduser("~/.tinkr/repl_history")
             try:
                 _rl.read_history_file(_hist)
@@ -203,6 +209,7 @@ class InvestigateREPL:
                 pass
             _rl.set_history_length(500)
             import atexit as _atexit
+
             _atexit.register(_rl.write_history_file, _hist)
         except ImportError:
             pass  # Windows — readline not available, graceful degradation
@@ -262,8 +269,7 @@ class InvestigateREPL:
             console.print(f"[green]Cleaned {removed} old session(s).[/green]")
         else:
             console.print(
-                f"[red]Unknown command:[/red] {cmd!r}  "
-                "(type [bold]help[/bold] for commands)"
+                f"[red]Unknown command:[/red] {cmd!r}  (type [bold]help[/bold] for commands)"
             )
 
     def _prompt(self) -> str:
@@ -279,7 +285,8 @@ class InvestigateREPL:
         with console.status(f"[bold green]Fetching logs for {self._service}...[/bold green]"):
             try:
                 logs = await get_logs(
-                    self._client, self._service,
+                    self._client,
+                    self._service,
                     query=query,
                     since=f"{self._window}m",
                     limit=500,
@@ -287,6 +294,7 @@ class InvestigateREPL:
                 )
             except Exception as exc:
                 import httpx
+
                 if isinstance(exc, httpx.HTTPStatusError):
                     try:
                         detail = exc.response.json().get("detail", str(exc))
@@ -383,9 +391,7 @@ class InvestigateREPL:
                 "Check infra, retries, or circuit-breaker config.[/dim]"
             )
         else:
-            console.print(
-                "[dim]Run [bold]fix[/bold] to get a proposed code patch.[/dim]"
-            )
+            console.print("[dim]Run [bold]fix[/bold] to get a proposed code patch.[/dim]")
 
     async def _do_fix(self, cmd: str) -> None:
         group = self._resolve_group(cmd, "fix")
@@ -426,9 +432,7 @@ class InvestigateREPL:
             )
         )
         if fix_result.get("diff"):
-            console.print(
-                Syntax(fix_result["diff"], "diff", theme="monokai", line_numbers=False)
-            )
+            console.print(Syntax(fix_result["diff"], "diff", theme="monokai", line_numbers=False))
         console.print(
             "\n[bold yellow]Run [cyan]approve[/cyan] to apply this fix and open a PR.[/bold yellow]"
         )
@@ -474,7 +478,9 @@ class InvestigateREPL:
             # No index — use drill-down group if available
             if self._drill_group:
                 return self._drill_group
-            console.print(f"[red]Usage: {verb} <n>  (or drill into a group with 'logs <n>' first)[/red]")
+            console.print(
+                f"[red]Usage: {verb} <n>  (or drill into a group with 'logs <n>' first)[/red]"
+            )
             return None
 
         idx = _parse_index(cmd, verb)
@@ -543,13 +549,14 @@ class InvestigateREPL:
                 console.print(
                     Panel(
                         t.get("full_trace", "")[:600],
-                        title=f"[red]Stack trace ({t.get('language','?')} · {t.get('count',0)}×)[/red]",
+                        title=f"[red]Stack trace ({t.get('language', '?')} · {t.get('count', 0)}×)[/red]",
                         border_style="red",
                     )
                 )
 
-        table = Table(show_header=True, header_style="bold magenta", title="Log entries",
-                      show_lines=True)
+        table = Table(
+            show_header=True, header_style="bold magenta", title="Log entries", show_lines=True
+        )
         table.add_column("#", width=3, justify="right", no_wrap=True)
         table.add_column("Time", width=10, no_wrap=True)
         table.add_column("Level", width=8, no_wrap=True)
@@ -589,6 +596,7 @@ class InvestigateREPL:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _group_to_anomaly_dict(group: ErrorGroup, service: str) -> dict:
     """Convert an ErrorGroup into the anomaly dict shape the server endpoints expect."""
     return {
@@ -602,8 +610,11 @@ def _group_to_anomaly_dict(group: ErrorGroup, service: str) -> dict:
         "log_summary": {
             **group.summary,
             "unique_patterns": [
-                {"template": group.template, "count": group.count,
-                 "example": group.entries[0].message if group.entries else ""}
+                {
+                    "template": group.template,
+                    "count": group.count,
+                    "example": group.entries[0].message if group.entries else "",
+                }
             ],
             "stack_traces": group.stack_traces,
         },
@@ -613,10 +624,8 @@ def _group_to_anomaly_dict(group: ErrorGroup, service: str) -> dict:
 def _extract_class(text: str) -> str | None:
     """Try to extract an error classification tag from the LLM response."""
     import re
-    m = re.search(
-        r'\b(transient|logic_bug|config_error|dependency_down)\b',
-        text, re.I
-    )
+
+    m = re.search(r"\b(transient|logic_bug|config_error|dependency_down)\b", text, re.I)
     return m.group(1).lower() if m else None
 
 

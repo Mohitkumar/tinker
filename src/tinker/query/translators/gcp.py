@@ -15,21 +15,21 @@ from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, T
 from tinker.query.resource import GCP_RESOURCE
 
 _SEVERITY_MAP: dict[str, str] = {
-    "debug":    "DEBUG",
-    "info":     "INFO",
-    "warn":     "WARNING",
-    "warning":  "WARNING",
-    "error":    "ERROR",
+    "debug": "DEBUG",
+    "info": "INFO",
+    "warn": "WARNING",
+    "warning": "WARNING",
+    "error": "ERROR",
     "critical": "CRITICAL",
-    "fatal":    "CRITICAL",
+    "fatal": "CRITICAL",
 }
 
 _FIELD_MAP: dict[str, str] = {
-    "level":    "severity",
-    "service":  "resource.labels.service_name",
-    "message":  "textPayload",
+    "level": "severity",
+    "service": "resource.labels.service_name",
+    "message": "textPayload",
     "trace_id": "trace",
-    "span_id":  "spanId",
+    "span_id": "spanId",
 }
 
 
@@ -50,11 +50,7 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, FieldFilter):
         gcp_field = _gcp_field(node.field)
-        values = (
-            [_gcp_severity(v) for v in node.values]
-            if node.field == "level"
-            else node.values
-        )
+        values = [_gcp_severity(v) for v in node.values] if node.field == "level" else node.values
         if len(values) == 1:
             return f'{gcp_field}="{values[0]}"'
         parts = [f'{gcp_field}="{v}"' for v in values]
@@ -62,8 +58,10 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, AndExpr):
         l, r = translate(node.left), translate(node.right)
-        if not l: return r
-        if not r: return l
+        if not l:
+            return r
+        if not r:
+            return l
         return f"({l}) AND ({r})"
 
     if isinstance(node, OrExpr):
@@ -81,15 +79,11 @@ def to_filter(node: QueryNode, service: str, resource_type: str | None = None) -
     """Return a complete GCP Cloud Logging filter including resource and service."""
     if resource_type and resource_type.lower() in GCP_RESOURCE:
         rtype, label_key = GCP_RESOURCE[resource_type.lower()]
-        resource_clause = (
-            f'resource.type="{rtype}" AND '
-            f'resource.labels.{label_key}="{service}"'
-        )
+        resource_clause = f'resource.type="{rtype}" AND resource.labels.{label_key}="{service}"'
     elif resource_type:
         # Unknown type — best-effort pass-through
         resource_clause = (
-            f'resource.labels.service_name="{service}" AND '
-            f'resource.type="{resource_type}"'
+            f'resource.labels.service_name="{service}" AND resource.type="{resource_type}"'
         )
     else:
         # Default: Cloud Run / generic service label

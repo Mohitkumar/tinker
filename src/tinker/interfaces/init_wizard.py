@@ -28,54 +28,54 @@ console = Console()
 # ── Cloud / backend catalogues ────────────────────────────────────────────────
 
 CLOUD_CHOICES = [
-    ("AWS (CloudWatch + X-Ray)",                 "cloudwatch",  "aws"),
-    ("GCP (Cloud Logging + Monitoring)",         "gcp",         "gcp"),
-    ("Azure (Log Analytics + Monitor)",          "azure",       "azure"),
-    ("Self-hosted (Grafana + Prometheus + Loki)", "grafana",     "grafana"),
-    ("Datadog",                                  "datadog",     "datadog"),
-    ("Elastic / OpenSearch",                     "elastic",     "elastic"),
+    ("AWS (CloudWatch + X-Ray)", "cloudwatch", "aws"),
+    ("GCP (Cloud Logging + Monitoring)", "gcp", "gcp"),
+    ("Azure (Log Analytics + Monitor)", "azure", "azure"),
+    ("Self-hosted (Grafana + Prometheus + Loki)", "grafana", "grafana"),
+    ("Datadog", "datadog", "datadog"),
+    ("Elastic / OpenSearch", "elastic", "elastic"),
 ]
 
 LLM_CHOICES = [
-    ("Anthropic (Claude) — direct",      "anthropic",  "ANTHROPIC_API_KEY"),
-    ("OpenRouter — access 100+ models",  "openrouter", "OPENROUTER_API_KEY"),
-    ("OpenAI (GPT-4o etc.)",             "openai",     "OPENAI_API_KEY"),
-    ("Groq — fast open-source models",   "groq",       "GROQ_API_KEY"),
+    ("Anthropic (Claude) — direct", "anthropic", "ANTHROPIC_API_KEY"),
+    ("OpenRouter — access 100+ models", "openrouter", "OPENROUTER_API_KEY"),
+    ("OpenAI (GPT-4o etc.)", "openai", "OPENAI_API_KEY"),
+    ("Groq — fast open-source models", "groq", "GROQ_API_KEY"),
 ]
 
 # (label, model_id)  — first entry is the default
 LLM_MODEL_CHOICES: dict[str, list[tuple[str, str]]] = {
     "anthropic": [
         ("claude-sonnet-4-6  (recommended — fast + smart)", "anthropic/claude-sonnet-4-6"),
-        ("claude-opus-4-6    (most capable, slower)",       "anthropic/claude-opus-4-6"),
-        ("claude-haiku-4-5   (cheapest, fastest)",          "anthropic/claude-haiku-4-5-20251001"),
+        ("claude-opus-4-6    (most capable, slower)", "anthropic/claude-opus-4-6"),
+        ("claude-haiku-4-5   (cheapest, fastest)", "anthropic/claude-haiku-4-5-20251001"),
     ],
     "openrouter": [
         ("claude-sonnet-4-6  (recommended)", "openrouter/anthropic/claude-sonnet-4-6"),
-        ("claude-opus-4-6",                  "openrouter/anthropic/claude-opus-4-6"),
-        ("gpt-4o",                           "openrouter/openai/gpt-4o"),
-        ("gpt-4o-mini        (cheaper)",     "openrouter/openai/gpt-4o-mini"),
-        ("llama-3.1-70b      (free tier)",   "openrouter/meta-llama/llama-3.1-70b-instruct"),
-        ("gemini-pro-1.5",                   "openrouter/google/gemini-pro-1.5"),
+        ("claude-opus-4-6", "openrouter/anthropic/claude-opus-4-6"),
+        ("gpt-4o", "openrouter/openai/gpt-4o"),
+        ("gpt-4o-mini        (cheaper)", "openrouter/openai/gpt-4o-mini"),
+        ("llama-3.1-70b      (free tier)", "openrouter/meta-llama/llama-3.1-70b-instruct"),
+        ("gemini-pro-1.5", "openrouter/google/gemini-pro-1.5"),
     ],
     "openai": [
         ("gpt-4o             (recommended)", "openai/gpt-4o"),
-        ("gpt-4o-mini        (cheaper)",     "openai/gpt-4o-mini"),
-        ("o1-preview         (reasoning)",   "openai/o1-preview"),
+        ("gpt-4o-mini        (cheaper)", "openai/gpt-4o-mini"),
+        ("o1-preview         (reasoning)", "openai/o1-preview"),
     ],
     "groq": [
         ("llama-3.1-70b-versatile  (recommended)", "groq/llama-3.1-70b-versatile"),
-        ("llama-3.1-8b-instant     (fastest)",     "groq/llama-3.1-8b-instant"),
-        ("mixtral-8x7b-32768",                     "groq/mixtral-8x7b-32768"),
+        ("llama-3.1-8b-instant     (fastest)", "groq/llama-3.1-8b-instant"),
+        ("mixtral-8x7b-32768", "groq/mixtral-8x7b-32768"),
     ],
 }
 
 # Deep RCA model defaults per provider (used when --deep flag is set)
 _DEEP_MODEL_DEFAULTS: dict[str, str] = {
-    "anthropic":  "anthropic/claude-opus-4-6",
+    "anthropic": "anthropic/claude-opus-4-6",
     "openrouter": "openrouter/anthropic/claude-opus-4-6",
-    "openai":     "openai/o1-preview",
-    "groq":       "groq/llama-3.1-70b-versatile",
+    "openai": "openai/o1-preview",
+    "groq": "groq/llama-3.1-70b-versatile",
 }
 
 # ── IAM permission guides ─────────────────────────────────────────────────────
@@ -118,25 +118,28 @@ az role assignment create --assignee <MANAGED_IDENTITY_PRINCIPAL_ID> \\
 # ServerWizard
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class ServerWizard:
     """Wizard for setting up and running tinkr-server on this machine."""
 
     def __init__(self) -> None:
         self.env_file = Path.home() / ".tinkr" / ".env"
         self.toml_file = Path.home() / ".tinkr" / "config.toml"
-        self._env: dict[str, str] = {}       # secrets → written to .env
-        self._toml: dict[str, object] = {}   # structure → written to config.toml
-        self._slack_configured = False       # set by _step_slack for _step_notifiers
-        self._slack_channel = "#incidents"   # carries the channel picked in _step_slack
+        self._env: dict[str, str] = {}  # secrets → written to .env
+        self._toml: dict[str, object] = {}  # structure → written to config.toml
+        self._slack_configured = False  # set by _step_slack for _step_notifiers
+        self._slack_channel = "#incidents"  # carries the channel picked in _step_slack
 
     def run(self) -> None:
         """Full first-time setup wizard."""
-        console.print(Panel.fit(
-            "[bold cyan]Tinkr Server Setup[/bold cyan]\n"
-            "This wizard configures the server that runs in your cloud environment.\n\n"
-            "[dim]Press Ctrl+C at any time to exit.[/dim]",
-            border_style="cyan",
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]Tinkr Server Setup[/bold cyan]\n"
+                "This wizard configures the server that runs in your cloud environment.\n\n"
+                "[dim]Press Ctrl+C at any time to exit.[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
         try:
@@ -219,7 +222,9 @@ class ServerWizard:
                 console.print("[red]Name required.[/red]")
                 continue
             if name in profiles:
-                console.print(f"[yellow]Profile '{name}' already exists — choose a different name.[/yellow]")
+                console.print(
+                    f"[yellow]Profile '{name}' already exists — choose a different name.[/yellow]"
+                )
                 continue
             break
 
@@ -253,7 +258,9 @@ class ServerWizard:
         # First profile becomes the active one if none set yet
         if "active_profile" not in self._toml:
             self._toml["active_profile"] = name
-            console.print(f"[green]✓[/green] Profile [bold]{name}[/bold] created and set as active.")
+            console.print(
+                f"[green]✓[/green] Profile [bold]{name}[/bold] created and set as active."
+            )
         else:
             console.print(f"[green]✓[/green] Profile [bold]{name}[/bold] created.")
 
@@ -297,13 +304,16 @@ class ServerWizard:
         console.print("[dim]Checking AWS CloudWatch permissions...[/dim]")
         try:
             import boto3
+
             boto3.client("logs").describe_log_groups(limit=1)
             console.print("[green]✓ CloudWatch Logs read access confirmed.[/green]")
         except Exception as exc:
             msg = str(exc)
             if "credential" in msg.lower() or "NoCredentials" in str(type(exc)):
                 console.print("[yellow]✗ No AWS credentials found.[/yellow]")
-                console.print("[dim]Attach an IAM role to this instance with the following policy:[/dim]")
+                console.print(
+                    "[dim]Attach an IAM role to this instance with the following policy:[/dim]"
+                )
                 console.print(Syntax(AWS_POLICY, "json", theme="monokai"))
             else:
                 console.print(f"[yellow]! CloudWatch check: {msg[:80]}[/yellow]")
@@ -316,6 +326,7 @@ class ServerWizard:
         console.print("[dim]Checking GCP Cloud Logging permissions...[/dim]")
         try:
             from google.cloud import logging as gcp_logging
+
             gcp_logging.Client().list_entries(max_results=1)
             console.print("[green]✓ Cloud Logging read access confirmed.[/green]")
         except Exception as exc:
@@ -348,8 +359,11 @@ class ServerWizard:
             from azure.identity import DefaultAzureCredential
             from azure.monitor.query import LogsQueryClient
             from datetime import timedelta
+
             qc = LogsQueryClient(DefaultAzureCredential())
-            qc.query_workspace(workspace_id, "AzureDiagnostics | take 1", timespan=timedelta(minutes=5))
+            qc.query_workspace(
+                workspace_id, "AzureDiagnostics | take 1", timespan=timedelta(minutes=5)
+            )
             console.print("[green]✓ Log Analytics read access confirmed.[/green]")
         except Exception as exc:
             console.print(f"[yellow]! Azure check: {str(exc)[:80]}[/yellow]")
@@ -365,10 +379,18 @@ class ServerWizard:
         user = input("Basic auth user (leave blank if not used): ").strip()
         password = input("Basic auth password (leave blank if not used): ").strip() if user else ""
         console.print()
-        console.print("[dim]Loki service label — the stream selector label your log shipper sets for the service name.[/dim]")
-        console.print("[dim]Common values: service (Promtail default), app (Helm charts), job, service_name, container[/dim]")
+        console.print(
+            "[dim]Loki service label — the stream selector label your log shipper sets for the service name.[/dim]"
+        )
+        console.print(
+            "[dim]Common values: service (Promtail default), app (Helm charts), job, service_name, container[/dim]"
+        )
         svc_label = input("Service label [service]: ").strip() or "service"
-        opts: dict[str, str] = {"loki_url": loki, "prometheus_url": prom, "service_label": svc_label}
+        opts: dict[str, str] = {
+            "loki_url": loki,
+            "prometheus_url": prom,
+            "service_label": svc_label,
+        }
         if tempo:
             opts["tempo_url"] = tempo
         if api_key:
@@ -396,7 +418,9 @@ class ServerWizard:
         }
 
     def _collect_elastic(self) -> dict:
-        url = input("Elasticsearch URL [http://localhost:9200]: ").strip() or "http://localhost:9200"
+        url = (
+            input("Elasticsearch URL [http://localhost:9200]: ").strip() or "http://localhost:9200"
+        )
         api_key = input("Elasticsearch API key (leave blank for no auth): ").strip()
         opts: dict[str, str] = {"url": url}
         if api_key:
@@ -447,7 +471,9 @@ class ServerWizard:
         # Deep RCA model — default to opus/most capable, let user override
         deep_default = _DEEP_MODEL_DEFAULTS.get(provider, default_model)
         console.print()
-        console.print(f"[dim]Deep RCA model (used with --deep flag, defaults to most capable):[/dim]")
+        console.print(
+            f"[dim]Deep RCA model (used with --deep flag, defaults to most capable):[/dim]"
+        )
         for i, (mlabel, _) in enumerate(models, 1):
             marker = " ← default" if models[i - 1][1] == deep_default else ""
             console.print(f"  [{i}] {mlabel}{marker}")
@@ -457,7 +483,9 @@ class ServerWizard:
             deep_default_idx = next(
                 (i for i, (_, mid) in enumerate(models, 1) if mid == deep_default), 1
             )
-            raw = input(f"Select deep RCA model [{deep_default_idx}]: ").strip() or str(deep_default_idx)
+            raw = input(f"Select deep RCA model [{deep_default_idx}]: ").strip() or str(
+                deep_default_idx
+            )
             try:
                 didx = int(raw) - 1
                 _, deep_model = models[didx]
@@ -496,6 +524,7 @@ class ServerWizard:
         try:
             import asyncio
             from slack_sdk.web.async_client import AsyncWebClient
+
             client = AsyncWebClient(token=bot_token)
             asyncio.run(client.auth_test())
             console.print("[green]✓ Slack connection confirmed.[/green]")
@@ -505,8 +534,10 @@ class ServerWizard:
     def _collect_notifiers_for_profile(self, profile_name: str) -> dict:
         """Collect notifiers for one profile. Returns a notifiers dict."""
         console.print()
-        console.print(f"[dim]Notifiers for profile [bold]{profile_name}[/bold] — "
-                      "deliver watch alerts to Slack, Discord, or webhooks.[/dim]")
+        console.print(
+            f"[dim]Notifiers for profile [bold]{profile_name}[/bold] — "
+            "deliver watch alerts to Slack, Discord, or webhooks.[/dim]"
+        )
         console.print()
 
         notifiers: dict[str, dict] = {}
@@ -529,8 +560,8 @@ class ServerWizard:
             return notifiers
 
         NOTIFIER_TYPES = [
-            ("Slack channel",        "slack"),
-            ("Discord webhook",      "discord"),
+            ("Slack channel", "slack"),
+            ("Discord webhook", "discord"),
             ("Generic HTTP webhook", "webhook"),
         ]
 
@@ -594,7 +625,9 @@ class ServerWizard:
                     entry["header_Authorization"] = f"env:{auth_var}"
                 notifiers[notifier_name] = entry
 
-            console.print(f"  [green]✓[/green] Added notifier: [bold]{notifier_name}[/bold] ({ntype_label})")
+            console.print(
+                f"  [green]✓[/green] Added notifier: [bold]{notifier_name}[/bold] ({ntype_label})"
+            )
 
         if notifiers:
             console.print(f"[green]✓[/green] {len(notifiers)} notifier(s): {', '.join(notifiers)}")
@@ -624,7 +657,7 @@ class ServerWizard:
             console.print("  Log formats:")
             hints = {
                 "label": "level is a stream label (fastest)",
-                "json":  '{"level":"error","msg":"..."}',
+                "json": '{"level":"error","msg":"..."}',
                 "logfmt": "level=error msg=...",
                 "pattern": "2026-01-01 ERROR SomeClass: ...",
             }
@@ -646,7 +679,9 @@ class ServerWizard:
             if resource_type:
                 entry["resource_type"] = resource_type
             services[svc] = entry
-            console.print(f"  [green]✓[/green] {svc}: format={fmt}" + (f", repo={repo}" if repo else ""))
+            console.print(
+                f"  [green]✓[/green] {svc}: format={fmt}" + (f", repo={repo}" if repo else "")
+            )
 
         return services
 
@@ -661,7 +696,9 @@ class ServerWizard:
         console.print()
 
         if not _ask_yes_no("Set up GitHub integration?", default=True):
-            console.print("[yellow]! Skipped — fix and approve commands will be unavailable.[/yellow]")
+            console.print(
+                "[yellow]! Skipped — fix and approve commands will be unavailable.[/yellow]"
+            )
             return
 
         token = input("GitHub token (ghp_... or classic PAT with repo scope): ").strip()
@@ -673,6 +710,7 @@ class ServerWizard:
         console.print("[dim]Validating token...[/dim]")
         try:
             from github import Github
+
             gh = Github(token)
             user = gh.get_user().login
             console.print(f"[green]✓ Authenticated as:[/green] {user}")
@@ -693,9 +731,7 @@ class ServerWizard:
             github_section["default_repo"] = default_repo
         self._toml["github"] = github_section
 
-        console.print(
-            "[dim]Per-service repo mappings can be added per profile in Step 5.[/dim]"
-        )
+        console.print("[dim]Per-service repo mappings can be added per profile in Step 5.[/dim]")
 
     def _step_api_key(self) -> None:
         console.print()
@@ -717,12 +753,14 @@ class ServerWizard:
             ],
         }
 
-        console.print(Panel(
-            f"[bold]Raw API key[/bold] (give this to CLI users):\n\n"
-            f"[bold cyan]{raw_key}[/bold cyan]\n\n"
-            "[dim]Store it somewhere safe — it won't be shown again.[/dim]",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Raw API key[/bold] (give this to CLI users):\n\n"
+                f"[bold cyan]{raw_key}[/bold cyan]\n\n"
+                "[dim]Store it somewhere safe — it won't be shown again.[/dim]",
+                border_style="yellow",
+            )
+        )
         input("Press Enter once you have copied the key...")
         console.print()
 
@@ -835,36 +873,41 @@ class ServerWizard:
 
     def _show_next_steps(self) -> None:
         console.print()
-        console.print(Panel(
-            "[bold]Setup complete![/bold]\n\n"
-            f"Config:  [dim]{self.toml_file}[/dim]\n"
-            f"Secrets: [dim]{self.env_file}[/dim]\n\n"
-            "Profile commands:\n\n"
-            "  [bold cyan]tinkr profile list[/bold cyan]          — show all profiles\n"
-            "  [bold cyan]tinkr profile use <name>[/bold cyan]    — switch active profile\n"
-            "  [bold cyan]tinkr profile add[/bold cyan]           — add a new cloud profile\n\n"
-            "Start the server:\n\n"
-            "  [bold cyan]tinkr-server start[/bold cyan]\n\n"
-            "Then on each developer laptop:\n\n"
-            "  [bold cyan]tinkr init[/bold cyan]",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                "[bold]Setup complete![/bold]\n\n"
+                f"Config:  [dim]{self.toml_file}[/dim]\n"
+                f"Secrets: [dim]{self.env_file}[/dim]\n\n"
+                "Profile commands:\n\n"
+                "  [bold cyan]tinkr profile list[/bold cyan]          — show all profiles\n"
+                "  [bold cyan]tinkr profile use <name>[/bold cyan]    — switch active profile\n"
+                "  [bold cyan]tinkr profile add[/bold cyan]           — add a new cloud profile\n\n"
+                "Start the server:\n\n"
+                "  [bold cyan]tinkr-server start[/bold cyan]\n\n"
+                "Then on each developer laptop:\n\n"
+                "  [bold cyan]tinkr init[/bold cyan]",
+                border_style="green",
+            )
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLIWizard
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class CLIWizard:
     """Wizard for pointing a developer's CLI at a running Tinkr server."""
 
     def run(self) -> None:
-        console.print(Panel.fit(
-            "[bold cyan]Tinkr CLI Setup[/bold cyan]\n"
-            "Connect this machine's CLI to a running Tinkr server.\n\n"
-            "[dim]Press Ctrl+C at any time to exit.[/dim]",
-            border_style="cyan",
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]Tinkr CLI Setup[/bold cyan]\n"
+                "Connect this machine's CLI to a running Tinkr server.\n\n"
+                "[dim]Press Ctrl+C at any time to exit.[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
         try:
@@ -878,10 +921,16 @@ class CLIWizard:
 
         # ── URL ───────────────────────────────────────────────────────────────
         console.print("[dim]Where is your Tinkr server running?[/dim]")
-        console.print("[dim](Run [bold]tinkr-server start[/bold] on any machine with cloud access.)[/dim]\n")
+        console.print(
+            "[dim](Run [bold]tinkr-server start[/bold] on any machine with cloud access.)[/dim]\n"
+        )
 
         current_url = _read_current_url()
-        prompt = f"Tinkr server URL [{current_url}]: " if current_url else "Tinkr server URL [http://localhost:8000]: "
+        prompt = (
+            f"Tinkr server URL [{current_url}]: "
+            if current_url
+            else "Tinkr server URL [http://localhost:8000]: "
+        )
         raw_url = input(prompt).strip()
         url = raw_url or current_url or "http://localhost:8000"
         url = url.rstrip("/")
@@ -908,6 +957,7 @@ class CLIWizard:
 
         try:
             from tinker.client import get_client
+
             client = get_client(url_override=url)
             data = asyncio.run(client.health())
             console.print(
@@ -924,21 +974,25 @@ class CLIWizard:
 
         # ── Write ~/.tinkr/config ────────────────────────────────────────────
         from tinker.client.config import write_config
+
         config_path = write_config(url, token=token or None)
         console.print(f"[green]✓ Saved:[/green] {config_path}")
 
         console.print()
-        console.print(Panel(
-            "[bold]All set![/bold]\n\n"
-            f"Config saved to [dim]{config_path}[/dim]\n\n"
-            "Try it:\n\n"
-            "  [bold cyan]tinkr doctor[/bold cyan]\n"
-            "  [bold cyan]tinkr anomaly <your-service>[/bold cyan]",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                "[bold]All set![/bold]\n\n"
+                f"Config saved to [dim]{config_path}[/dim]\n\n"
+                "Try it:\n\n"
+                "  [bold cyan]tinkr doctor[/bold cyan]\n"
+                "  [bold cyan]tinkr anomaly <your-service>[/bold cyan]",
+                border_style="green",
+            )
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _detect_cloud() -> dict | None:
     """Try to detect the cloud environment from instance metadata."""
@@ -981,6 +1035,7 @@ def _detect_cloud() -> dict | None:
             headers={"Metadata": "true"},
         )
         import json
+
         data = json.loads(urllib.request.urlopen(req, timeout=1).read())
         sub = data.get("compute", {}).get("subscriptionId", "")
         if sub:
@@ -1001,4 +1056,5 @@ def _ask_yes_no(question: str, default: bool = True) -> bool:
 
 def _read_current_url() -> str:
     from tinker.client.config import _read_config
+
     return os.environ.get("TINKR_SERVER_URL", "") or _read_config().get("url", "")

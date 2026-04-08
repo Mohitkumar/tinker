@@ -69,7 +69,7 @@ class TraceSpan:
     service: str
     start_time: datetime
     duration_ms: float
-    status: str = "ok"          # ok | error
+    status: str = "ok"  # ok | error
     parent_span_id: str = ""
     tags: dict[str, str] = field(default_factory=dict)
 
@@ -82,7 +82,7 @@ class Trace:
     start_time: datetime
     duration_ms: float
     span_count: int
-    status: str = "ok"          # ok | error
+    status: str = "ok"  # ok | error
     spans: list[TraceSpan] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -239,6 +239,7 @@ class ObservabilityBackend(ABC):
         that the LLM never receives thousands of raw identical log lines.
         """
         from tinker.agent.summarizer import LogSummarizer
+
         return LogSummarizer().summarize(logs, window_minutes=window_minutes)
 
     # ── Convenience helpers (non-abstract) ────────────────────────────────────

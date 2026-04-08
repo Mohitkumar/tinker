@@ -27,6 +27,7 @@ _ANALYZE_TIMEOUT = 300.0  # analysis can take a while
 
 def _parse_trace(d: dict) -> Trace:
     from datetime import timezone
+
     ts_raw = d.get("start_time", "")
     try:
         ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
@@ -59,6 +60,7 @@ def _parse_trace(d: dict) -> Trace:
 
 def _parse_log_entry(d: dict) -> LogEntry:
     from datetime import timezone
+
     ts_raw = d.get("timestamp", "")
     try:
         ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
@@ -77,6 +79,7 @@ def _parse_log_entry(d: dict) -> LogEntry:
 
 def _parse_metric_point(d: dict) -> MetricPoint:
     from datetime import timezone
+
     ts_raw = d.get("timestamp", "")
     try:
         ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
@@ -151,7 +154,9 @@ class RemoteClient:
         while True:
             now = datetime.now(timezone.utc)
             try:
-                entries = await self.query_logs(service, query, cursor, now, limit=200, resource_type=resource_type)
+                entries = await self.query_logs(
+                    service, query, cursor, now, limit=200, resource_type=resource_type
+                )
                 for entry in sorted(entries, key=lambda e: e.timestamp):
                     key = (entry.timestamp, entry.message)
                     if key not in seen:
@@ -189,11 +194,15 @@ class RemoteClient:
         window_minutes: int = 10,
     ) -> list[Anomaly]:
         from datetime import timezone
+
         async with self._client() as c:
-            resp = await c.post("/api/v1/anomalies", json={
-                "service": service,
-                "window_minutes": window_minutes,
-            })
+            resp = await c.post(
+                "/api/v1/anomalies",
+                json={
+                    "service": service,
+                    "window_minutes": window_minutes,
+                },
+            )
             resp.raise_for_status()
         results = []
         for d in resp.json().get("anomalies", []):
@@ -202,15 +211,17 @@ class RemoteClient:
                 ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 ts = datetime.now(timezone.utc)
-            results.append(Anomaly(
-                service=d["service"],
-                metric=d["metric"],
-                description=d["description"],
-                severity=d["severity"],
-                detected_at=ts,
-                current_value=float(d.get("current_value", 0)),
-                threshold=float(d.get("threshold", 0)),
-            ))
+            results.append(
+                Anomaly(
+                    service=d["service"],
+                    metric=d["metric"],
+                    description=d["description"],
+                    severity=d["severity"],
+                    detected_at=ts,
+                    current_value=float(d.get("current_value", 0)),
+                    threshold=float(d.get("threshold", 0)),
+                )
+            )
         return results
 
     # ── Agent (explain / fix / approve) ──────────────────────────────────────
@@ -253,11 +264,14 @@ class RemoteClient:
     ) -> dict[str, Any]:
         """Apply staged file changes on the server and open a GitHub PR."""
         async with self._client(timeout=_FIX_TIMEOUT) as c:
-            resp = await c.post("/api/v1/approve", json={
-                "file_changes": file_changes,
-                "explanation": explanation,
-                "service": service,
-            })
+            resp = await c.post(
+                "/api/v1/approve",
+                json={
+                    "file_changes": file_changes,
+                    "explanation": explanation,
+                    "service": service,
+                },
+            )
             resp.raise_for_status()
         return resp.json()
 
@@ -308,16 +322,24 @@ class RemoteClient:
         tags: dict[str, str] | None = None,
     ) -> list[Trace]:
         from datetime import timezone
+
         async with self._client() as c:
-            resp = await c.post("/api/v1/traces", json={"service": service, "since": since, "limit": limit, "tags": tags})
+            resp = await c.post(
+                "/api/v1/traces",
+                json={"service": service, "since": since, "limit": limit, "tags": tags},
+            )
             resp.raise_for_status()
         return [_parse_trace(t) for t in resp.json().get("traces", [])]
 
     # ── SLO ───────────────────────────────────────────────────────────────────
 
-    async def get_slo(self, service: str, target_pct: float = 99.9, window: str = "30d") -> dict[str, Any]:
+    async def get_slo(
+        self, service: str, target_pct: float = 99.9, window: str = "30d"
+    ) -> dict[str, Any]:
         async with self._client() as c:
-            resp = await c.post("/api/v1/slo", json={"service": service, "target_pct": target_pct, "window": window})
+            resp = await c.post(
+                "/api/v1/slo", json={"service": service, "target_pct": target_pct, "window": window}
+            )
             resp.raise_for_status()
         return resp.json()
 
@@ -325,19 +347,28 @@ class RemoteClient:
 
     async def get_deploys(self, service: str, since: str = "7d", limit: int = 10) -> dict[str, Any]:
         async with self._client() as c:
-            resp = await c.get(f"/api/v1/deploys/{service}", params={"since": since, "limit": limit})
+            resp = await c.get(
+                f"/api/v1/deploys/{service}", params={"since": since, "limit": limit}
+            )
             resp.raise_for_status()
         return resp.json()
 
-    async def correlate_deploys(self, service: str, since: str = "7d", window_minutes: int = 30) -> dict[str, Any]:
+    async def correlate_deploys(
+        self, service: str, since: str = "7d", window_minutes: int = 30
+    ) -> dict[str, Any]:
         async with self._client() as c:
-            resp = await c.get(f"/api/v1/deploys/{service}/correlate", params={"since": since, "window_minutes": window_minutes})
+            resp = await c.get(
+                f"/api/v1/deploys/{service}/correlate",
+                params={"since": since, "window_minutes": window_minutes},
+            )
             resp.raise_for_status()
         return resp.json()
 
     # ── RCA ───────────────────────────────────────────────────────────────────
 
-    async def stream_rca(self, service: str, since: str = "1h", severity_filter: str | None = None) -> AsyncGenerator[str, None]:
+    async def stream_rca(
+        self, service: str, since: str = "1h", severity_filter: str | None = None
+    ) -> AsyncGenerator[str, None]:
         body = {"service": service, "since": since, "severity_filter": severity_filter}
         async with self._client(timeout=_ANALYZE_TIMEOUT) as c:
             async with c.stream("POST", "/api/v1/rca", json=body) as resp:
@@ -364,9 +395,15 @@ class RemoteClient:
         notifier: str | None = None,
         destination: str | None = None,
     ) -> dict[str, Any]:
-        body = {"service": service, "metric": metric, "operator": operator,
-                "threshold": threshold, "severity": severity,
-                "notifier": notifier, "destination": destination}
+        body = {
+            "service": service,
+            "metric": metric,
+            "operator": operator,
+            "threshold": threshold,
+            "severity": severity,
+            "notifier": notifier,
+            "destination": destination,
+        }
         async with self._client() as c:
             resp = await c.post("/api/v1/alerts", json=body)
             resp.raise_for_status()
@@ -402,11 +439,16 @@ class RemoteClient:
 
     def parse_since(self, since: str) -> "datetime":
         from datetime import timedelta, timezone
+
         now = datetime.now(timezone.utc)
         unit = since[-1]
         value = int(since[:-1])
         match unit:
-            case "m": return now - timedelta(minutes=value)
-            case "h": return now - timedelta(hours=value)
-            case "d": return now - timedelta(days=value)
-            case _: raise ValueError(f"Unknown time unit '{unit}' in '{since}'. Use m/h/d.")
+            case "m":
+                return now - timedelta(minutes=value)
+            case "h":
+                return now - timedelta(hours=value)
+            case "d":
+                return now - timedelta(days=value)
+            case _:
+                raise ValueError(f"Unknown time unit '{unit}' in '{since}'. Use m/h/d.")

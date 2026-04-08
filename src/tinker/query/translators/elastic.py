@@ -26,11 +26,11 @@ from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, T
 from tinker.query.resource import DEFAULT_ELASTIC_INDEX, ELASTIC_INDEX
 
 _FIELD_MAP: dict[str, str] = {
-    "level":    "log.level",
-    "service":  "service.name",
-    "message":  "message",
+    "level": "log.level",
+    "service": "service.name",
+    "message": "message",
     "trace_id": "trace.id",
-    "span_id":  "span.id",
+    "span_id": "span.id",
 }
 
 
@@ -65,7 +65,12 @@ def translate(node: QueryNode) -> dict[str, Any]:
         return {"bool": {"must": must}}
 
     if isinstance(node, OrExpr):
-        return {"bool": {"should": [translate(node.left), translate(node.right)], "minimum_should_match": 1}}
+        return {
+            "bool": {
+                "should": [translate(node.left), translate(node.right)],
+                "minimum_should_match": 1,
+            }
+        }
 
     if isinstance(node, NotExpr):
         return {"bool": {"must_not": [translate(node.operand)]}}

@@ -53,7 +53,10 @@ class GrafanaMCPServer(TinkerMCPServer):
                         "type": "object",
                         "properties": {
                             "service": {"type": "string"},
-                            "query": {"type": "string", "description": "LogQL expression or keyword"},
+                            "query": {
+                                "type": "string",
+                                "description": "LogQL expression or keyword",
+                            },
                             "since": {"type": "string", "default": "1h"},
                             "limit": {"type": "integer", "default": 100},
                         },
@@ -67,7 +70,10 @@ class GrafanaMCPServer(TinkerMCPServer):
                         "type": "object",
                         "properties": {
                             "service": {"type": "string"},
-                            "metric_name": {"type": "string", "description": "Metric name or full PromQL expression"},
+                            "metric_name": {
+                                "type": "string",
+                                "description": "Metric name or full PromQL expression",
+                            },
                             "since": {"type": "string", "default": "1h"},
                         },
                         "required": ["service", "metric_name"],
@@ -124,23 +130,29 @@ class GrafanaMCPServer(TinkerMCPServer):
         entries = await self._backend.query_logs(
             args["service"], args["query"], start, end, args.get("limit", 100)
         )
-        return self._text([
-            {"timestamp": e.timestamp.isoformat(), "level": e.level,
-             "message": sanitize_log_content(e.message)}
-            for e in entries
-        ])
+        return self._text(
+            [
+                {
+                    "timestamp": e.timestamp.isoformat(),
+                    "level": e.level,
+                    "message": sanitize_log_content(e.message),
+                }
+                for e in entries
+            ]
+        )
 
     async def _handle_get_metrics(self, args: dict[str, Any]):
         end = datetime.now(timezone.utc)
         start = self._backend._parse_since(args.get("since", "1h"))
-        points = await self._backend.get_metrics(
-            args["service"], args["metric_name"], start, end
+        points = await self._backend.get_metrics(args["service"], args["metric_name"], start, end)
+        return self._text(
+            [{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points]
         )
-        return self._text([{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points])
 
     async def _handle_search_traces(self, args: dict[str, Any]):
         # GrafanaBackend has search_traces as a bonus method
         from tinker.backends.grafana import GrafanaBackend
+
         assert isinstance(self._backend, GrafanaBackend)
         traces = await self._backend.search_traces(args["service"], limit=args.get("limit", 20))
         return self._text(traces)

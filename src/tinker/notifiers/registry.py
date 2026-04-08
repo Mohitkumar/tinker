@@ -65,6 +65,7 @@ class NotifierRegistry:
     def build_from_toml(self, notifiers_cfg: dict[str, NotifierConfig]) -> None:
         """Register all notifiers defined in config.toml."""
         from tinker.notifiers import make_notifier
+
         for name, cfg in notifiers_cfg.items():
             notifier = make_notifier(cfg.type, cfg.options)
             if notifier is not None:

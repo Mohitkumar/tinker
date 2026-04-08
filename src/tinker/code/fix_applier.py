@@ -41,6 +41,7 @@ class FixApplier:
                     text=True,
                 )
                 import json
+
                 try:
                     data = json.loads(result.stdout)
                     for r in data.get("results", []):
@@ -82,6 +83,7 @@ class FixApplier:
         import asyncio
 
         from tinker import toml_config as tc
+
         gh_cfg = tc.get().github
         token = gh_cfg.token
         repo = gh_cfg.default_repo
@@ -93,8 +95,7 @@ class FixApplier:
         critical = [f for f in findings if "[CRITICAL]" in f or "[HIGH]" in f]
         if critical:
             raise ValueError(
-                f"Semgrep found high-severity issues in the proposed fix:\n"
-                + "\n".join(critical)
+                f"Semgrep found high-severity issues in the proposed fix:\n" + "\n".join(critical)
             )
 
         # Apply patch and commit

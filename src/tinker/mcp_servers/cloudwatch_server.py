@@ -50,9 +50,19 @@ class CloudWatchMCPServer(TinkerMCPServer):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "service": {"type": "string", "description": "Lambda function or log group prefix"},
-                            "query": {"type": "string", "description": "CloudWatch Logs Insights query string"},
-                            "since": {"type": "string", "description": "Time window: 1h, 30m, 2d", "default": "1h"},
+                            "service": {
+                                "type": "string",
+                                "description": "Lambda function or log group prefix",
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "CloudWatch Logs Insights query string",
+                            },
+                            "since": {
+                                "type": "string",
+                                "description": "Time window: 1h, 30m, 2d",
+                                "default": "1h",
+                            },
                             "limit": {"type": "integer", "default": 100},
                         },
                         "required": ["service", "query"],
@@ -65,7 +75,10 @@ class CloudWatchMCPServer(TinkerMCPServer):
                         "type": "object",
                         "properties": {
                             "service": {"type": "string"},
-                            "metric_name": {"type": "string", "description": "CloudWatch metric name e.g. Errors, Duration, Throttles"},
+                            "metric_name": {
+                                "type": "string",
+                                "description": "CloudWatch metric name e.g. Errors, Duration, Throttles",
+                            },
                             "since": {"type": "string", "default": "1h"},
                             "namespace": {"type": "string", "default": "AWS/Lambda"},
                         },
@@ -133,7 +146,9 @@ class CloudWatchMCPServer(TinkerMCPServer):
             start=start,
             end=end,
         )
-        return self._text([{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points])
+        return self._text(
+            [{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points]
+        )
 
     async def _handle_detect_anomalies(self, args: dict[str, Any]):
         anomalies = await self._backend.detect_anomalies(

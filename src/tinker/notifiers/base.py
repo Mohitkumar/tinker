@@ -17,7 +17,7 @@ class AlertNotifier(ABC):
     @abstractmethod
     async def send_alert(
         self,
-        anomalies: list[Any],   # list[Anomaly] — avoid circular import
+        anomalies: list[Any],  # list[Anomaly] — avoid circular import
         service: str,
         destination: str | None,
         watch_id: str,

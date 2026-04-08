@@ -105,20 +105,26 @@ def create_app() -> FastAPI:
         if not _slack_handler_cache:
             try:
                 from tinker import toml_config as tc
+
                 slack_cfg = tc.get().slack
                 if not slack_cfg.bot_token or not slack_cfg.signing_secret:
                     from fastapi.responses import JSONResponse
+
                     return JSONResponse(
                         status_code=503,
-                        content={"detail": "Slack not configured (bot_token / signing_secret missing)"},
+                        content={
+                            "detail": "Slack not configured (bot_token / signing_secret missing)"
+                        },
                     )
                 from tinker.interfaces.slack_bot import build_app as build_bolt_app
                 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+
                 _slack_handler_cache.append(AsyncSlackRequestHandler(build_bolt_app()))
                 log.info("slack.handler_ready")
             except Exception as exc:
                 log.exception("slack.init_failed")
                 from fastapi.responses import JSONResponse
+
                 return JSONResponse(status_code=503, content={"detail": f"Slack init error: {exc}"})
         return await _slack_handler_cache[0].handle(request)
 
@@ -126,6 +132,7 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["ops"])
     async def health():
         from tinker import toml_config as tc
+
         cfg = tc.get()
         active = cfg.active_profile or (next(iter(cfg.profiles)) if cfg.profiles else None)
         return {

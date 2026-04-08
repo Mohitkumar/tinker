@@ -24,12 +24,24 @@ APPROVAL_REQUIRED_TOOLS: frozenset[str] = frozenset(
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "dev": {"query_logs", "get_metrics", "get_recent_errors", "get_file", "search_code"},
     "sre": {
-        "query_logs", "get_metrics", "get_recent_errors", "get_file",
-        "search_code", "suggest_fix", "search_traces",
+        "query_logs",
+        "get_metrics",
+        "get_recent_errors",
+        "get_file",
+        "search_code",
+        "suggest_fix",
+        "search_traces",
     },
     "oncall": {
-        "query_logs", "get_metrics", "get_recent_errors", "get_file",
-        "search_code", "suggest_fix", "search_traces", "apply_fix", "create_pr",
+        "query_logs",
+        "get_metrics",
+        "get_recent_errors",
+        "get_file",
+        "search_code",
+        "suggest_fix",
+        "search_traces",
+        "apply_fix",
+        "create_pr",
     },
     "sre-lead": {"*"},  # all tools
 }

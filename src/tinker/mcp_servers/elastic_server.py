@@ -50,8 +50,14 @@ class ElasticMCPServer(TinkerMCPServer):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "service": {"type": "string", "description": "service.name field value"},
-                            "query": {"type": "string", "description": "Lucene or KQL query string"},
+                            "service": {
+                                "type": "string",
+                                "description": "service.name field value",
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "Lucene or KQL query string",
+                            },
                             "since": {"type": "string", "default": "1h"},
                             "limit": {"type": "integer", "default": 100},
                         },
@@ -65,7 +71,10 @@ class ElasticMCPServer(TinkerMCPServer):
                         "type": "object",
                         "properties": {
                             "service": {"type": "string"},
-                            "metric_field": {"type": "string", "description": "Numeric field to aggregate e.g. http.response.duration"},
+                            "metric_field": {
+                                "type": "string",
+                                "description": "Numeric field to aggregate e.g. http.response.duration",
+                            },
                             "since": {"type": "string", "default": "1h"},
                         },
                         "required": ["service", "metric_field"],
@@ -112,15 +121,17 @@ class ElasticMCPServer(TinkerMCPServer):
             end=end,
             limit=args.get("limit", 100),
         )
-        return self._text([
-            {
-                "timestamp": e.timestamp.isoformat(),
-                "level": e.level,
-                "message": sanitize_log_content(e.message),
-                "trace_id": e.trace_id,
-            }
-            for e in entries
-        ])
+        return self._text(
+            [
+                {
+                    "timestamp": e.timestamp.isoformat(),
+                    "level": e.level,
+                    "message": sanitize_log_content(e.message),
+                    "trace_id": e.trace_id,
+                }
+                for e in entries
+            ]
+        )
 
     async def _handle_get_metrics(self, args: dict[str, Any]):
         end = datetime.now(timezone.utc)
@@ -131,7 +142,9 @@ class ElasticMCPServer(TinkerMCPServer):
             start=start,
             end=end,
         )
-        return self._text([{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points])
+        return self._text(
+            [{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points]
+        )
 
     async def _handle_detect_anomalies(self, args: dict[str, Any]):
         anomalies = await self._backend.detect_anomalies(

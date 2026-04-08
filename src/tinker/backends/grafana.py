@@ -39,7 +39,15 @@ from typing import Any, AsyncGenerator
 import httpx
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, ServiceNotFoundError, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    ServiceNotFoundError,
+    Trace,
+    TraceSpan,
+)
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -73,10 +81,16 @@ class GrafanaBackend(ObservabilityBackend):
         self._headers: dict[str, str] = {}
 
         if api_key:
-            secret = api_key.get_secret_value() if hasattr(api_key, "get_secret_value") else str(api_key)
+            secret = (
+                api_key.get_secret_value() if hasattr(api_key, "get_secret_value") else str(api_key)
+            )
             self._headers["Authorization"] = f"Bearer {secret}"
         elif user and password:
-            pwd = password.get_secret_value() if hasattr(password, "get_secret_value") else str(password)
+            pwd = (
+                password.get_secret_value()
+                if hasattr(password, "get_secret_value")
+                else str(password)
+            )
             self._auth = httpx.BasicAuth(user, pwd)
 
     # ── Logs via Loki ─────────────────────────────────────────────────────────
@@ -104,8 +118,15 @@ class GrafanaBackend(ObservabilityBackend):
             logql = query
         else:
             from tinker.query import parse_query, translate_for
+
             ast = parse_query(query)
-            logql = translate_for("grafana", ast, service=service, resource_type=resource_type, service_label=self._service_label)
+            logql = translate_for(
+                "grafana",
+                ast,
+                service=service,
+                resource_type=resource_type,
+                service_label=self._service_label,
+            )
 
         params = {
             "query": logql,
@@ -138,12 +159,13 @@ class GrafanaBackend(ObservabilityBackend):
         entries: list[LogEntry] = []
         for stream in result_streams:
             stream_labels: dict[str, str] = stream.get("stream", {})
-            svc = stream_labels.get("service") or stream_labels.get("service_name") or stream_labels.get("app") or service
-            level = (
-                stream_labels.get("level")
-                or stream_labels.get("severity")
-                or "INFO"
-            ).upper()
+            svc = (
+                stream_labels.get("service")
+                or stream_labels.get("service_name")
+                or stream_labels.get("app")
+                or service
+            )
+            level = (stream_labels.get("level") or stream_labels.get("severity") or "INFO").upper()
             for ts_ns, line in stream.get("values", []):
                 entries.append(
                     LogEntry(
@@ -193,11 +215,14 @@ class GrafanaBackend(ObservabilityBackend):
         """
         if not self._loki_url:
             log.warning("grafana.loki_not_configured — falling back to poll tail")
-            async for entry in super().tail_logs(service, query, poll_interval, resource_type=resource_type):
+            async for entry in super().tail_logs(
+                service, query, poll_interval, resource_type=resource_type
+            ):
                 yield entry
             return
 
         from tinker.query import parse_query, translate_for
+
         ast = parse_query(query)
         logql = translate_for("grafana", ast, service=service, resource_type=resource_type)
 
@@ -232,9 +257,7 @@ class GrafanaBackend(ObservabilityBackend):
                     for stream in data.get("streams", []):
                         stream_labels: dict[str, str] = stream.get("stream", {})
                         level = (
-                            stream_labels.get("level")
-                            or stream_labels.get("severity")
-                            or "INFO"
+                            stream_labels.get("level") or stream_labels.get("severity") or "INFO"
                         ).upper()
                         svc = (
                             stream_labels.get("service")
@@ -252,7 +275,9 @@ class GrafanaBackend(ObservabilityBackend):
         except Exception as exc:
             log.warning("grafana.tail.websocket_failed", error=str(exc))
             log.info("grafana.tail.fallback_to_poll")
-            async for entry in super().tail_logs(service, query, poll_interval, resource_type=resource_type):
+            async for entry in super().tail_logs(
+                service, query, poll_interval, resource_type=resource_type
+            ):
                 yield entry
 
     # ── Metrics via Prometheus ────────────────────────────────────────────────
@@ -272,7 +297,7 @@ class GrafanaBackend(ObservabilityBackend):
 
         labels = {**(dimensions or {}), "job": service}
         label_str = ",".join(f'{k}="{v}"' for k, v in labels.items())
-        promql = f'{metric_name}{{{label_str}}}'
+        promql = f"{metric_name}{{{label_str}}}"
 
         params = {
             "query": promql,
@@ -326,7 +351,7 @@ class GrafanaBackend(ObservabilityBackend):
         }
         if tags:
             extra = " ".join(f'{k}="{v}"' for k, v in tags.items())
-            params["tags"] = f'{params["tags"]} {extra}'
+            params["tags"] = f"{params['tags']} {extra}"
 
         async with httpx.AsyncClient(auth=self._auth, headers=self._headers) as client:
             resp = await client.get(
@@ -350,36 +375,51 @@ class GrafanaBackend(ObservabilityBackend):
         for t in raw:
             try:
                 start_ns = int(t.get("startTimeUnixNano", 0))
-                start_dt = datetime.fromtimestamp(start_ns / 1e9, tz=timezone.utc) if start_ns else datetime.now(timezone.utc)
+                start_dt = (
+                    datetime.fromtimestamp(start_ns / 1e9, tz=timezone.utc)
+                    if start_ns
+                    else datetime.now(timezone.utc)
+                )
                 duration_ms = float(t.get("durationMs", 0))
                 root_name = t.get("rootTraceName") or t.get("rootServiceName") or "unknown"
-                status = "error" if any(
-                    s.get("attributes", {}).get("error") for s in t.get("spanSets", [{}])[0].get("spans", [])
-                ) else "ok"
+                status = (
+                    "error"
+                    if any(
+                        s.get("attributes", {}).get("error")
+                        for s in t.get("spanSets", [{}])[0].get("spans", [])
+                    )
+                    else "ok"
+                )
                 span_sets = t.get("spanSets", [])
                 span_count = sum(len(ss.get("spans", [])) for ss in span_sets)
                 spans = []
                 for ss in span_sets:
                     for s in ss.get("spans", []):
-                        spans.append(TraceSpan(
-                            span_id=s.get("spanID", ""),
-                            operation_name=s.get("name", ""),
-                            service=service,
-                            start_time=datetime.fromtimestamp(int(s.get("startTimeUnixNano", start_ns)) / 1e9, tz=timezone.utc),
-                            duration_ms=float(s.get("durationNanos", 0)) / 1e6,
-                            status="error" if s.get("attributes", {}).get("error") else "ok",
-                            parent_span_id=s.get("parentSpanID", ""),
-                        ))
-                traces.append(Trace(
-                    trace_id=t.get("traceID", ""),
-                    service=service,
-                    operation_name=root_name,
-                    start_time=start_dt,
-                    duration_ms=duration_ms,
-                    span_count=span_count or len(spans),
-                    status=status,
-                    spans=spans,
-                ))
+                        spans.append(
+                            TraceSpan(
+                                span_id=s.get("spanID", ""),
+                                operation_name=s.get("name", ""),
+                                service=service,
+                                start_time=datetime.fromtimestamp(
+                                    int(s.get("startTimeUnixNano", start_ns)) / 1e9, tz=timezone.utc
+                                ),
+                                duration_ms=float(s.get("durationNanos", 0)) / 1e6,
+                                status="error" if s.get("attributes", {}).get("error") else "ok",
+                                parent_span_id=s.get("parentSpanID", ""),
+                            )
+                        )
+                traces.append(
+                    Trace(
+                        trace_id=t.get("traceID", ""),
+                        service=service,
+                        operation_name=root_name,
+                        start_time=start_dt,
+                        duration_ms=duration_ms,
+                        span_count=span_count or len(spans),
+                        status=status,
+                        spans=spans,
+                    )
+                )
             except Exception:
                 continue
         return traces
@@ -453,8 +493,7 @@ class GrafanaBackend(ObservabilityBackend):
         # user sees an empty table with no indication that the backend is unhealthy.
         if backend_errors and not anomalies:
             raise RuntimeError(
-                "Observability backend check(s) failed — "
-                + "; ".join(backend_errors)
+                "Observability backend check(s) failed — " + "; ".join(backend_errors)
             )
 
         return anomalies

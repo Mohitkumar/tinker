@@ -53,8 +53,8 @@ def _get_manager() -> WatchManager:
 
 class CreateWatchRequest(BaseModel):
     service: str
-    notifier: str | None = None       # name from [notifiers.*] in config.toml
-    destination: str | None = None    # platform-specific target override
+    notifier: str | None = None  # name from [notifiers.*] in config.toml
+    destination: str | None = None  # platform-specific target override
     interval_seconds: int = 60
 
 
@@ -70,7 +70,9 @@ async def create_watch(
         destination=req.destination,
         interval_seconds=req.interval_seconds,
     )
-    log.info("watch.created_via_api", service=req.service, notifier=req.notifier, actor=auth.subject)
+    log.info(
+        "watch.created_via_api", service=req.service, notifier=req.notifier, actor=auth.subject
+    )
     return watch
 
 
@@ -90,7 +92,9 @@ async def stop_watch(
     m = _get_manager()
     ok = m.stop_watch(watch_id)
     if not ok:
-        raise HTTPException(status_code=404, detail=f"Watch {watch_id!r} not found or already stopped")
+        raise HTTPException(
+            status_code=404, detail=f"Watch {watch_id!r} not found or already stopped"
+        )
     log.info("watch.stopped_via_api", watch_id=watch_id, actor=auth.subject)
     return {"status": "stopped", "watch_id": watch_id}
 

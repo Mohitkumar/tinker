@@ -45,10 +45,11 @@ _SERVICE_LABEL = "service"
 @dataclass
 class _LogQL:
     """Intermediate representation built while walking the AST."""
-    labels: dict[str, str | list[str]] = field(default_factory=dict)   # exact label matches
-    label_regexps: dict[str, str] = field(default_factory=dict)         # label =~ "regexp"
-    line_filters: list[str] = field(default_factory=list)               # |= / != / |~
-    logfmt_filters: list[str] = field(default_factory=list)             # | level="X"
+
+    labels: dict[str, str | list[str]] = field(default_factory=dict)  # exact label matches
+    label_regexps: dict[str, str] = field(default_factory=dict)  # label =~ "regexp"
+    line_filters: list[str] = field(default_factory=list)  # |= / != / |~
+    logfmt_filters: list[str] = field(default_factory=list)  # | level="X"
 
 
 def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
@@ -57,7 +58,7 @@ def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
         if node.text == "*":
             return
         op = "!=" if negated else "|="
-        acc.line_filters.append(f'{op} `{node.text}`')
+        acc.line_filters.append(f"{op} `{node.text}`")
 
     elif isinstance(node, FieldFilter):
         fname = node.field
@@ -106,7 +107,7 @@ def _collect(node: QueryNode, acc: _LogQL, negated: bool = False) -> None:
         if isinstance(node.left, TextFilter) and isinstance(node.right, TextFilter):
             pattern = f"({node.left.text}|{node.right.text})"
             op = "!~" if negated else "|~"
-            acc.line_filters.append(f'{op} `{pattern}`')
+            acc.line_filters.append(f"{op} `{pattern}`")
         else:
             # Best-effort: collect both sides (may over-match)
             _collect(node.left, acc, negated)

@@ -53,11 +53,11 @@ def _sync_llm_keys() -> None:
     from tinker.config import settings
 
     _KEY_MAP = {
-        "anthropic_api_key":  "ANTHROPIC_API_KEY",
+        "anthropic_api_key": "ANTHROPIC_API_KEY",
         "openrouter_api_key": "OPENROUTER_API_KEY",
-        "openai_api_key":     "OPENAI_API_KEY",
-        "groq_api_key":       "GROQ_API_KEY",
-        "mistral_api_key":    "MISTRAL_API_KEY",
+        "openai_api_key": "OPENAI_API_KEY",
+        "groq_api_key": "GROQ_API_KEY",
+        "mistral_api_key": "MISTRAL_API_KEY",
     }
     for attr, env_var in _KEY_MAP.items():
         secret = getattr(settings, attr, None)
@@ -97,7 +97,8 @@ def _init_langfuse() -> None:
 
     try:
         import langfuse as lf
-        lf.get_client()   # registers OTEL TracerProvider pointing at Langfuse
+
+        lf.get_client()  # registers OTEL TracerProvider pointing at Langfuse
     except Exception as exc:
         log.warning("langfuse.init_failed", error=str(exc))
         return
@@ -116,12 +117,11 @@ def _is_anthropic(model: str) -> bool:
 
 def _supports_thinking(model: str) -> bool:
     """Extended thinking is only available on Anthropic Claude Opus/Sonnet via direct API."""
-    return model.startswith("anthropic/") and (
-        "opus" in model.lower() or "sonnet" in model.lower()
-    )
+    return model.startswith("anthropic/") and ("opus" in model.lower() or "sonnet" in model.lower())
 
 
 # ── Completion (non-streaming) ────────────────────────────────────────────────
+
 
 def complete(
     messages: list[dict[str, Any]],
@@ -153,6 +153,7 @@ def complete(
 
 # ── Async non-streaming completion ───────────────────────────────────────────
 
+
 async def async_complete(
     messages: list[dict[str, Any]],
     model: str,
@@ -178,6 +179,7 @@ async def async_complete(
 
 
 # ── Streaming completion ──────────────────────────────────────────────────────
+
 
 async def stream_complete(
     messages: list[dict[str, Any]],
@@ -206,6 +208,7 @@ async def stream_complete(
 
 # ── Response parsing helpers ──────────────────────────────────────────────────
 
+
 def extract_text(response: litellm.ModelResponse) -> str:
     """Pull the assistant text from a ModelResponse."""
     choice = response.choices[0]
@@ -223,11 +226,13 @@ def extract_tool_calls(response: litellm.ModelResponse) -> list[dict[str, Any]]:
             arguments = json.loads(tc.function.arguments or "{}")
         except json.JSONDecodeError:
             arguments = {}
-        result.append({
-            "id": tc.id,
-            "name": tc.function.name,
-            "arguments": arguments,
-        })
+        result.append(
+            {
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": arguments,
+            }
+        )
     return result
 
 

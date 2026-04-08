@@ -35,7 +35,7 @@ def test_field_simple():
 def test_field_alias_normalised():
     node = parse("severity:ERROR")
     assert isinstance(node, FieldFilter)
-    assert node.field == "level"   # normalised via FIELD_ALIASES
+    assert node.field == "level"  # normalised via FIELD_ALIASES
 
 
 def test_field_multi_value():

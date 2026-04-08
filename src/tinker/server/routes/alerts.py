@@ -31,7 +31,7 @@ _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 class CreateAlertRequest(BaseModel):
     service: str
     metric: str
-    operator: str           # gt | lt | gte | lte
+    operator: str  # gt | lt | gte | lte
     threshold: float
     severity: str = "medium"
     notifier: str | None = None
@@ -39,7 +39,7 @@ class CreateAlertRequest(BaseModel):
 
 
 class MuteRequest(BaseModel):
-    duration: str = "1h"    # e.g. 30m, 2h, 1d
+    duration: str = "1h"  # e.g. 30m, 2h, 1d
 
 
 @router.post("", status_code=201)
@@ -103,9 +103,14 @@ async def mute_alert(
     auth: Annotated[AuthContext, Depends(require_auth)],
 ) -> dict[str, Any]:
     from datetime import timedelta, datetime, timezone
+
     unit = req.duration[-1]
     value = int(req.duration[:-1])
-    delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit)
+    delta = {
+        "m": timedelta(minutes=value),
+        "h": timedelta(hours=value),
+        "d": timedelta(days=value),
+    }.get(unit)
     if not delta:
         raise HTTPException(status_code=422, detail=f"Unknown duration unit '{unit}' — use m/h/d")
     muted_until = (datetime.now(timezone.utc) + delta).isoformat()

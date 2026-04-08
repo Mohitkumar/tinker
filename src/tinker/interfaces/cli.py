@@ -41,9 +41,11 @@ log = structlog.get_logger(__name__)
 
 # ── Error handling ────────────────────────────────────────────────────────────
 
+
 def _run(coro) -> None:
     """Run a coroutine, printing server errors cleanly instead of a traceback."""
     import httpx
+
     try:
         asyncio.run(coro)
     except httpx.HTTPStatusError as exc:
@@ -63,6 +65,7 @@ def _run(coro) -> None:
 
 def _get_client():
     from tinker.client import get_client
+
     try:
         return get_client()
     except Exception as exc:
@@ -71,6 +74,7 @@ def _get_client():
 
 
 # ── Setup commands ────────────────────────────────────────────────────────────
+
 
 @app.command("init")
 def init_cli() -> None:
@@ -82,10 +86,12 @@ def init_cli() -> None:
     To set up the server itself, run [bold]tinkr-server init[/bold] on the server machine.
     """
     from tinker.interfaces.init_wizard import CLIWizard
+
     CLIWizard().run()
 
 
 # ── Doctor ────────────────────────────────────────────────────────────────────
+
 
 @app.command()
 def doctor() -> None:
@@ -101,7 +107,9 @@ async def _doctor() -> None:
 
     try:
         data = await client.health()
-        results.append(("Server", True, f"v{data.get('version','')}  backend={data.get('backend','')}"))
+        results.append(
+            ("Server", True, f"v{data.get('version', '')}  backend={data.get('backend', '')}")
+        )
     except Exception as exc:
         results.append(("Server", False, str(exc)[:80]))
         _print_check_table(results)
@@ -115,6 +123,7 @@ async def _doctor() -> None:
 
     try:
         from datetime import timezone, timedelta, datetime as dt
+
         end = dt.now(timezone.utc)
         start = end - timedelta(minutes=5)
         await client.query_logs("_health_check_", "*", start, end, limit=1)
@@ -149,13 +158,16 @@ def _print_check_table(results: list[tuple[str, bool, str]]) -> None:
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
+
 @app.command()
 def logs(
     service: str = typer.Argument(..., help="Service name"),
     query: str = typer.Option("*", "--query", "-q", help="Log query string"),
     since: str = typer.Option("30m", "--since", "-s"),
     limit: int = typer.Option(50, "--limit", "-n"),
-    resource: Optional[str] = typer.Option(None, "--resource", "-r", help="Resource type: ecs, lambda, eks, rds, cloudrun, aks"),
+    resource: Optional[str] = typer.Option(
+        None, "--resource", "-r", help="Resource type: ecs, lambda, eks, rds, cloudrun, aks"
+    ),
     output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o", help="Output format"),
 ) -> None:
     """[bold cyan]Fetch recent logs for a service.[/bold cyan]
@@ -172,6 +184,7 @@ def logs(
 async def _logs(service, query, since, limit, resource, output) -> None:
     from tinker.interfaces.handlers import get_logs
     from tinker.interfaces.renderers import render_logs
+
     client = _get_client()
     with console.status("Querying..."):
         entries = await get_logs(client, service, query, since, limit, resource)
@@ -179,6 +192,7 @@ async def _logs(service, query, since, limit, resource, output) -> None:
 
 
 # ── Tail ──────────────────────────────────────────────────────────────────────
+
 
 @app.command()
 def tail(
@@ -202,6 +216,7 @@ def tail(
 async def _tail(service, query, poll, resource, output) -> None:
     from tinker.interfaces.handlers import stream_logs
     from tinker.interfaces.renderers import render_log_entry
+
     client = _get_client()
     if output == OutputFormat.table:
         console.print(
@@ -219,6 +234,7 @@ async def _tail(service, query, poll, resource, output) -> None:
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
+
 
 @app.command()
 def metrics(
@@ -242,6 +258,7 @@ def metrics(
 async def _metrics(service, metric, since, resource, output) -> None:
     from tinker.interfaces.handlers import get_metrics
     from tinker.interfaces.renderers import render_metrics
+
     client = _get_client()
     with console.status("Querying..."):
         points = await get_metrics(client, service, metric, since, resource)
@@ -250,11 +267,14 @@ async def _metrics(service, metric, since, resource, output) -> None:
 
 # ── Anomaly ───────────────────────────────────────────────────────────────────
 
+
 @app.command()
 def anomaly(
     service: str = typer.Argument(..., help="Service name"),
     since: str = typer.Option("1h", "--since", "-s", help="Look-back window: 30m, 1h, 2h, 1d"),
-    severity: Optional[str] = typer.Option(None, "--severity", help="Filter: low/medium/high/critical"),
+    severity: Optional[str] = typer.Option(
+        None, "--severity", help="Filter: low/medium/high/critical"
+    ),
     resource: Optional[str] = typer.Option(None, "--resource", "-r"),
     output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o", help="Output format"),
 ) -> None:
@@ -273,6 +293,7 @@ def anomaly(
 async def _anomaly(service, since, severity, resource, output) -> None:
     from tinker.interfaces.handlers import get_anomalies
     from tinker.interfaces.renderers import render_anomalies
+
     client = _get_client()
     with console.status(f"[bold green]Detecting anomalies for {service}...[/bold green]"):
         anomalies = await get_anomalies(client, service, since, severity, resource)
@@ -281,12 +302,17 @@ async def _anomaly(service, since, severity, resource, output) -> None:
 
 # ── Investigate REPL ─────────────────────────────────────────────────────────
 
+
 @app.command()
 def investigate(
     service: str = typer.Argument(..., help="Service name"),
     since: str = typer.Option("30m", "--since", "-s", help="Look-back window (e.g. 30m, 2h, 1d)"),
-    level: str = typer.Option("ERROR", "--level", "-l", help="Log level to group: ERROR, WARN, or ALL"),
-    resource: Optional[str] = typer.Option(None, "--resource", "-r", help="Resource type (ecs, lambda, eks…)"),
+    level: str = typer.Option(
+        "ERROR", "--level", "-l", help="Log level to group: ERROR, WARN, or ALL"
+    ),
+    resource: Optional[str] = typer.Option(
+        None, "--resource", "-r", help="Resource type (ecs, lambda, eks…)"
+    ),
 ) -> None:
     """[bold cyan]Investigate errors interactively — group, explain, fix, PR.[/bold cyan]
 
@@ -309,11 +335,15 @@ def investigate(
 async def _investigate_repl(service: str, since: str, level: str, resource: str | None) -> None:
     from tinker.interfaces.handlers import parse_since
     from tinker.interfaces.investigate_repl import InvestigateREPL
+
     _, window = parse_since(since)
     client = _get_client()
     await InvestigateREPL(
-        service=service, client=client,
-        window_minutes=window, level=level, resource=resource,
+        service=service,
+        client=client,
+        window_minutes=window,
+        level=level,
+        resource=resource,
     ).run()
 
 
@@ -327,11 +357,15 @@ app.add_typer(watch_app, name="watch")
 def watch_start(
     service: str = typer.Argument(..., help="Service to watch"),
     notifier: Optional[str] = typer.Option(
-        None, "--notifier", "-n",
+        None,
+        "--notifier",
+        "-n",
         help="Notifier name from [notifiers.*] in config.toml (default: 'default')",
     ),
     destination: Optional[str] = typer.Option(
-        None, "--destination", "-d",
+        None,
+        "--destination",
+        "-d",
         help="Platform-specific target override, e.g. '#payments-oncall' for Slack",
     ),
     interval: int = typer.Option(60, "--interval", "-i", help="Poll interval in seconds"),
@@ -384,6 +418,7 @@ def watch_delete(
 
 async def _watch_start(service, notifier, destination, interval) -> None:
     from tinker.interfaces.handlers import start_watch
+
     client = _get_client()
     with console.status(f"[bold green]Creating watch for {service}...[/bold green]"):
         watch = await start_watch(client, service, notifier, destination, interval)
@@ -400,6 +435,7 @@ async def _watch_start(service, notifier, destination, interval) -> None:
 async def _watch_list(output) -> None:
     from tinker.interfaces.handlers import get_watches
     from tinker.interfaces.renderers import render_watches
+
     client = _get_client()
     watches = await get_watches(client)
     render_watches(watches, output)
@@ -407,6 +443,7 @@ async def _watch_list(output) -> None:
 
 async def _watch_stop(watch_id) -> None:
     from tinker.interfaces.handlers import stop_watch
+
     client = _get_client()
     await stop_watch(client, watch_id)
     console.print(f"[green]Watch {watch_id} stopped.[/green]")
@@ -414,12 +451,14 @@ async def _watch_stop(watch_id) -> None:
 
 async def _watch_delete(watch_id) -> None:
     from tinker.interfaces.handlers import delete_watch
+
     client = _get_client()
     await delete_watch(client, watch_id)
     console.print(f"[green]Watch {watch_id} deleted.[/green]")
 
 
 # ── Trace command ────────────────────────────────────────────────────────────
+
 
 @app.command()
 def trace(
@@ -442,6 +481,7 @@ def trace(
 async def _trace(service, since, limit, output) -> None:
     from tinker.interfaces.handlers import get_traces
     from tinker.interfaces.renderers import render_traces
+
     client = _get_client()
     with console.status(f"[bold green]Fetching traces for {service}...[/bold green]"):
         traces = await get_traces(client, service, since=since, limit=limit)
@@ -449,6 +489,7 @@ async def _trace(service, since, limit, output) -> None:
 
 
 # ── Diff command ──────────────────────────────────────────────────────────────
+
 
 @app.command()
 def diff(
@@ -473,6 +514,7 @@ def diff(
 async def _diff(service, baseline, compare, output) -> None:
     from tinker.interfaces.handlers import get_diff
     from tinker.interfaces.renderers import render_diff
+
     client = _get_client()
     with console.status("[bold green]Comparing windows...[/bold green]"):
         result = await get_diff(client, service, baseline=baseline, compare=compare)
@@ -481,11 +523,14 @@ async def _diff(service, baseline, compare, output) -> None:
 
 # ── RCA command ───────────────────────────────────────────────────────────────
 
+
 @app.command()
 def rca(
     service: str = typer.Argument(..., help="Service name"),
     since: str = typer.Option("1h", "--since", "-s", help="Evidence window: 30m, 1h, 2h"),
-    severity: Optional[str] = typer.Option(None, "--severity", help="Min severity to include: low/medium/high/critical"),
+    severity: Optional[str] = typer.Option(
+        None, "--severity", help="Min severity to include: low/medium/high/critical"
+    ),
 ) -> None:
     """[bold cyan]Run a full AI root-cause analysis combining logs, metrics, and traces.[/bold cyan]
 
@@ -503,11 +548,14 @@ def rca(
 async def _rca(service, since, severity) -> None:
     from rich.markdown import Markdown
     from rich.panel import Panel
+
     client = _get_client()
-    console.print(Panel.fit(
-        f"[bold cyan]Root Cause Analysis[/bold cyan]  [dim]{service}  window:{since}[/dim]",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Root Cause Analysis[/bold cyan]  [dim]{service}  window:{since}[/dim]",
+            border_style="cyan",
+        )
+    )
     chunks: list[str] = []
     with console.status("[bold green]Analysing logs, metrics, and traces...[/bold green]"):
         # Drain first chunk to dismiss the spinner before streaming
@@ -565,6 +613,7 @@ def deploy_correlate(
 async def _deploy_list(service, since, limit, output) -> None:
     from tinker.interfaces.handlers import get_deploys
     from tinker.interfaces.renderers import render_deploys
+
     client = _get_client()
     with console.status(f"[bold green]Fetching deploys for {service}...[/bold green]"):
         data = await get_deploys(client, service, since=since, limit=limit)
@@ -574,6 +623,7 @@ async def _deploy_list(service, since, limit, output) -> None:
 async def _deploy_correlate(service, since, output) -> None:
     from tinker.interfaces.handlers import correlate_deploys
     from tinker.interfaces.renderers import render_deploys
+
     client = _get_client()
     with console.status("[bold green]Correlating deploys with anomalies...[/bold green]"):
         data = await correlate_deploys(client, service, since=since)
@@ -581,6 +631,7 @@ async def _deploy_correlate(service, since, output) -> None:
 
 
 # ── SLO command ───────────────────────────────────────────────────────────────
+
 
 @app.command()
 def slo(
@@ -606,6 +657,7 @@ def slo(
 async def _slo(service, target, window, output) -> None:
     from tinker.interfaces.handlers import get_slo
     from tinker.interfaces.renderers import render_slo
+
     client = _get_client()
     with console.status(f"[bold green]Computing SLO for {service}...[/bold green]"):
         result = await get_slo(client, service, target_pct=target, window=window)
@@ -625,8 +677,12 @@ def alert_create(
     operator: str = typer.Option(..., "--op", help="Comparison operator: gt, lt, gte, lte"),
     threshold: float = typer.Option(..., "--threshold", "-t", help="Numeric threshold"),
     severity: str = typer.Option("medium", "--severity", "-s", help="low/medium/high/critical"),
-    notifier: Optional[str] = typer.Option(None, "--notifier", "-n", help="Notifier name from config.toml"),
-    destination: Optional[str] = typer.Option(None, "--destination", "-d", help="Channel / webhook override"),
+    notifier: Optional[str] = typer.Option(
+        None, "--notifier", "-n", help="Notifier name from config.toml"
+    ),
+    destination: Optional[str] = typer.Option(
+        None, "--destination", "-d", help="Channel / webhook override"
+    ),
 ) -> None:
     """[bold cyan]Create a threshold-based alert rule.[/bold cyan]
 
@@ -674,10 +730,15 @@ def alert_mute(
     _run(_alert_mute(alert_id, duration))
 
 
-async def _alert_create(service, metric, operator, threshold, severity, notifier, destination) -> None:
+async def _alert_create(
+    service, metric, operator, threshold, severity, notifier, destination
+) -> None:
     from tinker.interfaces.handlers import create_alert
+
     client = _get_client()
-    rule = await create_alert(client, service, metric, operator, threshold, severity, notifier, destination)
+    rule = await create_alert(
+        client, service, metric, operator, threshold, severity, notifier, destination
+    )
     console.print(
         f"[green]Alert created[/green]  [bold]{rule.get('alert_id')}[/bold]\n"
         f"  {service}  {metric} {operator} {threshold}  severity={severity}\n"
@@ -688,6 +749,7 @@ async def _alert_create(service, metric, operator, threshold, severity, notifier
 async def _alert_list(output) -> None:
     from tinker.interfaces.handlers import get_alerts
     from tinker.interfaces.renderers import render_alerts
+
     client = _get_client()
     alerts = await get_alerts(client)
     render_alerts(alerts, output)
@@ -695,6 +757,7 @@ async def _alert_list(output) -> None:
 
 async def _alert_delete(alert_id) -> None:
     from tinker.interfaces.handlers import delete_alert
+
     client = _get_client()
     await delete_alert(client, alert_id)
     console.print(f"[green]Alert {alert_id} deleted.[/green]")
@@ -702,9 +765,12 @@ async def _alert_delete(alert_id) -> None:
 
 async def _alert_mute(alert_id, duration) -> None:
     from tinker.interfaces.handlers import mute_alert
+
     client = _get_client()
     result = await mute_alert(client, alert_id, duration=duration)
-    console.print(f"[green]Alert {alert_id} muted until {result.get('muted_until', '?')[:19]}.[/green]")
+    console.print(
+        f"[green]Alert {alert_id} muted until {result.get('muted_until', '?')[:19]}.[/green]"
+    )
 
 
 # ── Profile commands ──────────────────────────────────────────────────────────
@@ -717,6 +783,7 @@ app.add_typer(profile_app, name="profile")
 def profile_list() -> None:
     """[bold cyan]List all configured profiles.[/bold cyan]"""
     from tinker import toml_config as tc
+
     cfg = tc.get()
     if not cfg.profiles:
         console.print(
@@ -731,10 +798,15 @@ def profile_list() -> None:
     table.add_column("Services", width=9, justify="right")
     table.add_column("Notifiers", width=10, justify="right")
     for name, p in cfg.profiles.items():
-        active_marker = "[bold green]●[/bold green]" if name == cfg.active_profile else "[dim]○[/dim]"
+        active_marker = (
+            "[bold green]●[/bold green]" if name == cfg.active_profile else "[dim]○[/dim]"
+        )
         table.add_row(
-            active_marker, name, p.backend,
-            str(len(p.services)), str(len(p.notifiers)),
+            active_marker,
+            name,
+            p.backend,
+            str(len(p.services)),
+            str(len(p.notifiers)),
         )
     console.print(table)
     console.print(
@@ -749,13 +821,11 @@ def profile_use(
 ) -> None:
     """[bold cyan]Set the active profile.[/bold cyan]"""
     from tinker import toml_config as tc
+
     cfg = tc.get()
     if name not in cfg.profiles:
         names = ", ".join(cfg.profiles) or "none"
-        console.print(
-            f"[red]Profile '{name}' not found.[/red] "
-            f"Available: {names}"
-        )
+        console.print(f"[red]Profile '{name}' not found.[/red] Available: {names}")
         raise typer.Exit(1)
     _set_active_profile(name)
     tc.reload()
@@ -766,6 +836,7 @@ def profile_use(
 def profile_add() -> None:
     """[bold cyan]Add a new cloud profile interactively.[/bold cyan]"""
     from tinker.interfaces.init_wizard import ServerWizard
+
     ServerWizard().run_add_profile()
 
 
@@ -773,6 +844,7 @@ def _set_active_profile(name: str) -> None:
     """Overwrite the active_profile key in config.toml."""
     import re
     from pathlib import Path
+
     toml_file = Path.home() / ".tinkr" / "config.toml"
     if not toml_file.exists():
         console.print("[red]config.toml not found. Run [bold]tinkr-server init[/bold] first.[/red]")
@@ -796,6 +868,7 @@ def _set_active_profile(name: str) -> None:
 
 
 # ── Version ───────────────────────────────────────────────────────────────────
+
 
 @app.command()
 def version() -> None:

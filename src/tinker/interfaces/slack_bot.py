@@ -37,12 +37,15 @@ SEVERITY_EMOJI = {
 
 # ── Client helper ─────────────────────────────────────────────────────────────
 
+
 def _get_client():
     from tinker.client import get_client
+
     return get_client()
 
 
 # ── RBAC ──────────────────────────────────────────────────────────────────────
+
 
 def _get_user_roles(client: Any, user_id: str) -> list[str]:
     try:
@@ -58,9 +61,7 @@ def _check_permission(roles: list[str], command: str) -> None:
         allowed = ROLE_PERMISSIONS.get(role, set())
         if "*" in allowed or command in allowed:
             return
-    raise PermissionDeniedError(
-        f"Your role ({roles}) does not have permission to use `{command}`."
-    )
+    raise PermissionDeniedError(f"Your role ({roles}) does not have permission to use `{command}`.")
 
 
 # ── Session store ─────────────────────────────────────────────────────────────
@@ -86,11 +87,15 @@ def _get_session(thread_ts: str, service: str = "") -> AgentSession:
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
+
 def build_app() -> AsyncApp:
     from tinker import toml_config as tc
+
     slack = tc.get().slack
     if not slack.bot_token or not slack.signing_secret:
-        raise RuntimeError("slack.bot_token and slack.signing_secret must be set in config.toml [slack]")
+        raise RuntimeError(
+            "slack.bot_token and slack.signing_secret must be set in config.toml [slack]"
+        )
 
     app = AsyncApp(
         token=slack.bot_token,
@@ -119,6 +124,7 @@ def build_app() -> AsyncApp:
 
         async def run():
             from tinker.interfaces.handlers import get_logs
+
             try:
                 entries = await get_logs(_get_client(), service, query, since, limit=10)
                 if not entries:
@@ -156,10 +162,13 @@ def build_app() -> AsyncApp:
 
         async def run():
             from tinker.interfaces.handlers import get_anomalies
+
             try:
                 anomalies = await get_anomalies(_get_client(), service, since, severity)
                 if not anomalies:
-                    await say(f":white_check_mark: No anomalies detected for `{service}` in the last {since}.")
+                    await say(
+                        f":white_check_mark: No anomalies detected for `{service}` in the last {since}."
+                    )
                     return
                 lines = [f"*Anomalies* — `{service}` (last {since})", ""]
                 for a in anomalies[:5]:
@@ -205,6 +214,7 @@ def build_app() -> AsyncApp:
 
         async def run_analysis():
             from tinker.agent.orchestrator import Orchestrator
+
             orch = Orchestrator()
             try:
                 report = await orch.analyze(service, since, session)
@@ -259,8 +269,8 @@ def build_app() -> AsyncApp:
     @app.command("/tinker-watch")
     async def handle_watch(ack: Any, body: dict[str, Any], say: Any, client: Any) -> None:
         """Usage: /tinker-watch start <service> [notifier=default] [interval=60]
-                  /tinker-watch list
-                  /tinker-watch stop <watch-id>"""
+        /tinker-watch list
+        /tinker-watch stop <watch-id>"""
         await ack()
         text = body.get("text", "").strip()
         parts = text.split()
@@ -277,8 +287,10 @@ def build_app() -> AsyncApp:
         subcommand = parts[0]
 
         if subcommand == "list":
+
             async def run_list():
                 from tinker.interfaces.handlers import get_watches
+
                 try:
                     watches = await get_watches(_get_client())
                     if not watches:
@@ -286,7 +298,9 @@ def build_app() -> AsyncApp:
                         return
                     lines = ["*Active Watches*", ""]
                     for w in watches:
-                        status = ":green_circle:" if w.get("status") == "running" else ":white_circle:"
+                        status = (
+                            ":green_circle:" if w.get("status") == "running" else ":white_circle:"
+                        )
                         lines.append(
                             f"{status} `{w['watch_id']}` — *{w['service']}*  "
                             f"notifier={w.get('notifier') or 'default'}  "
@@ -295,6 +309,7 @@ def build_app() -> AsyncApp:
                     await say("\n".join(lines))
                 except Exception as exc:
                     await say(f":x: Error listing watches: {exc}")
+
             asyncio.create_task(run_list())
 
         elif subcommand == "start" and len(parts) >= 2:
@@ -312,6 +327,7 @@ def build_app() -> AsyncApp:
 
             async def run_start():
                 from tinker.interfaces.handlers import start_watch
+
                 try:
                     watch = await start_watch(_get_client(), service, notifier, None, interval)
                     await say(
@@ -322,6 +338,7 @@ def build_app() -> AsyncApp:
                     )
                 except Exception as exc:
                     await say(f":x: Error starting watch: {exc}")
+
             asyncio.create_task(run_start())
 
         elif subcommand == "stop" and len(parts) >= 2:
@@ -329,11 +346,13 @@ def build_app() -> AsyncApp:
 
             async def run_stop():
                 from tinker.interfaces.handlers import stop_watch
+
                 try:
                     await stop_watch(_get_client(), watch_id)
                     await say(f":white_check_mark: Watch `{watch_id}` stopped.")
                 except Exception as exc:
                     await say(f":x: Error stopping watch: {exc}")
+
             asyncio.create_task(run_stop())
 
         else:
@@ -368,6 +387,7 @@ def build_app() -> AsyncApp:
 
 
 # ── Block formatters ──────────────────────────────────────────────────────────
+
 
 def _format_incident_blocks(report: Any) -> list[dict[str, Any]]:
     emoji = SEVERITY_EMOJI.get(report.severity, ":white_circle:")
@@ -421,8 +441,10 @@ def _format_incident_blocks(report: Any) -> list[dict[str, Any]]:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+
 async def start_bot() -> None:
     from tinker import toml_config as tc
+
     app = build_app()
     app_token = tc.get().slack.app_token
     if not app_token:

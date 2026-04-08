@@ -37,59 +37,67 @@ if TYPE_CHECKING:
 
 _VAR_SUBS: list[tuple[re.Pattern, str]] = [
     # UUIDs
-    (re.compile(
-        r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',
-        re.I,
-    ), '<uuid>'),
+    (
+        re.compile(
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+            re.I,
+        ),
+        "<uuid>",
+    ),
     # ISO timestamps (keep near top — must beat plain number)
-    (re.compile(
-        r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?'
-    ), '<ts>'),
+    (
+        re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"),
+        "<ts>",
+    ),
     # Unix epoch timestamps (10–13 digits)
-    (re.compile(r'\b\d{10,13}\b'), '<ts>'),
+    (re.compile(r"\b\d{10,13}\b"), "<ts>"),
     # Hex strings ≥ 12 chars (commit shas, trace IDs, etc.)
-    (re.compile(r'\b[0-9a-f]{12,}\b'), '<hex>'),
+    (re.compile(r"\b[0-9a-f]{12,}\b"), "<hex>"),
     # IPv4 with optional port
-    (re.compile(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b'), '<ip>'),
+    (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b"), "<ip>"),
     # File-system paths (≥ 2 components)
-    (re.compile(r'(?:/[a-zA-Z0-9_.\-]+){2,}'), '<path>'),
+    (re.compile(r"(?:/[a-zA-Z0-9_.\-]+){2,}"), "<path>"),
     # Long quoted strings (> 12 chars)
     (re.compile(r'"[^"\n]{12,}"'), '"<str>"'),
     # Remaining standalone numbers
-    (re.compile(r'\b\d+(?:\.\d+)?\b'), '<n>'),
+    (re.compile(r"\b\d+(?:\.\d+)?\b"), "<n>"),
 ]
 
 # ── Stack trace header patterns ───────────────────────────────────────────────
 # These identify the *start* of a stack trace within a (possibly multi-line) message.
 
 _TRACE_HEADERS: list[tuple[str, re.Pattern]] = [
-    ("python",  re.compile(r'Traceback \(most recent call last\)', re.M)),
-    ("python",  re.compile(
-        r'(?:ValueError|TypeError|KeyError|AttributeError|RuntimeError|'
-        r'ImportError|OSError|IOError|IndexError|NameError|'
-        r'NotImplementedError|StopIteration|AssertionError|'
-        r'FileNotFoundError|PermissionError|ConnectionError|'
-        r'TimeoutError|MemoryError|OverflowError|ZeroDivisionError)'
-        r': .', re.M,
-    )),
-    ("java",    re.compile(r'(?:Exception|Error) in thread\b', re.M)),
-    ("java",    re.compile(r'\b(?:\w+\.)+(?:\w+Exception|\w+Error):', re.M)),
-    ("java",    re.compile(r'Caused by:', re.M)),
-    ("node",    re.compile(r'\bError: .+\n\s+at ', re.M | re.S)),
-    ("go",      re.compile(r'goroutine \d+ \[', re.M)),
-    ("go",      re.compile(r'\bpanic:', re.M)),
-    ("ruby",    re.compile(r'\((?:\w+::)?\w+Error\)', re.M)),
+    ("python", re.compile(r"Traceback \(most recent call last\)", re.M)),
+    (
+        "python",
+        re.compile(
+            r"(?:ValueError|TypeError|KeyError|AttributeError|RuntimeError|"
+            r"ImportError|OSError|IOError|IndexError|NameError|"
+            r"NotImplementedError|StopIteration|AssertionError|"
+            r"FileNotFoundError|PermissionError|ConnectionError|"
+            r"TimeoutError|MemoryError|OverflowError|ZeroDivisionError)"
+            r": .",
+            re.M,
+        ),
+    ),
+    ("java", re.compile(r"(?:Exception|Error) in thread\b", re.M)),
+    ("java", re.compile(r"\b(?:\w+\.)+(?:\w+Exception|\w+Error):", re.M)),
+    ("java", re.compile(r"Caused by:", re.M)),
+    ("node", re.compile(r"\bError: .+\n\s+at ", re.M | re.S)),
+    ("go", re.compile(r"goroutine \d+ \[", re.M)),
+    ("go", re.compile(r"\bpanic:", re.M)),
+    ("ruby", re.compile(r"\((?:\w+::)?\w+Error\)", re.M)),
 ]
 
 # Lines that look like stack frames (for boundary detection)
 _FRAME_LINE = re.compile(
-    r'(?:'
-    r'^\s+File "[^"]+", line \d+'              # Python
-    r'|^\s+at [\w.$<>]+\('                     # Java / Node
-    r'|^\t[\w./]+\.go:\d+'                     # Go source line
-    r'|^\s+\S+\+0x[0-9a-f]+'                  # Go symbol
-    r'|^\s+from .+:\d+:in '                    # Ruby
-    r')',
+    r"(?:"
+    r'^\s+File "[^"]+", line \d+'  # Python
+    r"|^\s+at [\w.$<>]+\("  # Java / Node
+    r"|^\t[\w./]+\.go:\d+"  # Go source line
+    r"|^\s+\S+\+0x[0-9a-f]+"  # Go symbol
+    r"|^\s+from .+:\d+:in "  # Ruby
+    r")",
     re.M,
 )
 
@@ -99,12 +107,12 @@ def _normalize_message(msg: str) -> str:
     for pattern, replacement in _VAR_SUBS:
         msg = pattern.sub(replacement, msg)
     # Collapse runs of whitespace to a single space
-    return re.sub(r'\s+', ' ', msg).strip()
+    return re.sub(r"\s+", " ", msg).strip()
 
 
 def _expand_escaped_newlines(msg: str) -> str:
     """Some log shippers store multi-line messages as JSON with literal \\n."""
-    return msg.replace('\\n', '\n').replace('\\t', '\t')
+    return msg.replace("\\n", "\n").replace("\\t", "\t")
 
 
 def _detect_stack_trace(message: str) -> tuple[str | None, str | None]:
@@ -131,9 +139,7 @@ def _trace_signature(trace_text: str) -> str:
     frame_line = ""
     for line in lines:
         stripped = line.strip()
-        if not exc_line and re.search(
-            r'(?:Error|Exception|panic)[\w.]*:', stripped
-        ):
+        if not exc_line and re.search(r"(?:Error|Exception|panic)[\w.]*:", stripped):
             exc_line = _normalize_message(stripped)[:120]
         if not frame_line and _FRAME_LINE.match(line):
             frame_line = stripped[:80]
@@ -152,6 +158,7 @@ def _peak_minute(timestamps: list[datetime]) -> str | None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 class LogSummarizer:
     """Compress an arbitrary-length list of LogEntry objects into a compact
@@ -225,9 +232,9 @@ class LogSummarizer:
         ]
 
         # ── 3. Top stack traces ───────────────────────────────────────────────
-        stack_traces = sorted(
-            trace_by_sig.values(), key=lambda t: t["count"], reverse=True
-        )[: self.MAX_STACK_TRACES]
+        stack_traces = sorted(trace_by_sig.values(), key=lambda t: t["count"], reverse=True)[
+            : self.MAX_STACK_TRACES
+        ]
 
         # ── 4. Time distribution ──────────────────────────────────────────────
         sorted_ts = sorted(timestamps)
@@ -239,11 +246,7 @@ class LogSummarizer:
 
         # ── 5. Common fields (present in > 60 % of entries) ──────────────────
         threshold = max(2, int(len(logs) * 0.6))
-        common_fields = {
-            k: v
-            for (k, v), cnt in field_counter.items()
-            if cnt >= threshold
-        }
+        common_fields = {k: v for (k, v), cnt in field_counter.items() if cnt >= threshold}
 
         summary = {
             "total_count": len(logs),
@@ -265,6 +268,7 @@ class LogSummarizer:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _has_trace(entry: LogEntry) -> bool:
     lang, _ = _detect_stack_trace(entry.message or "")
@@ -309,15 +313,14 @@ def build_explain_context(anomaly_dict: dict) -> str:
         td = summary.get("time_distribution") or {}
         if td.get("first_seen"):
             lines.append(
-                f"  first={td['first_seen']}  last={td.get('last_seen','?')}"
-                f"  peak={td.get('peak_minute','?')}"
+                f"  first={td['first_seen']}  last={td.get('last_seen', '?')}"
+                f"  peak={td.get('peak_minute', '?')}"
             )
 
         cf = summary.get("common_fields") or {}
         if cf:
             lines.append(
-                "  Common fields: "
-                + ", ".join(f"{k}={v}" for k, v in list(cf.items())[:5])
+                "  Common fields: " + ", ".join(f"{k}={v}" for k, v in list(cf.items())[:5])
             )
 
         for i, p in enumerate(summary.get("unique_patterns") or [], 1):
@@ -327,14 +330,11 @@ def build_explain_context(anomaly_dict: dict) -> str:
         for t in summary.get("stack_traces") or []:
             lines.append("")
             lines.append(
-                f"Stack trace [{t.get('language','?')}]"
-                f" — {t.get('count', 0)}× occurrences"
+                f"Stack trace [{t.get('language', '?')}] — {t.get('count', 0)}× occurrences"
             )
-            lines.append(f"  Signature: {t.get('signature','?')[:120]}")
+            lines.append(f"  Signature: {t.get('signature', '?')[:120]}")
             # First 10 lines of the full trace
-            trace_preview = "\n".join(
-                (t.get("full_trace") or "").splitlines()[:10]
-            )
+            trace_preview = "\n".join((t.get("full_trace") or "").splitlines()[:10])
             if trace_preview:
                 lines.append("  " + trace_preview.replace("\n", "\n  "))
 

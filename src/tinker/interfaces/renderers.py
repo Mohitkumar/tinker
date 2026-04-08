@@ -58,6 +58,7 @@ class OutputFormat(str, Enum):
 
 # ── Serialisers (shared between json + jsonlines) ─────────────────────────────
 
+
 def _log_dict(e: LogEntry) -> dict[str, Any]:
     return {
         "timestamp": e.timestamp.isoformat(),
@@ -77,6 +78,7 @@ def _metric_dict(p: MetricPoint) -> dict[str, Any]:
 
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
+
 
 def render_logs(entries: list[LogEntry], fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:
@@ -116,6 +118,7 @@ def render_log_entry(e: LogEntry, fmt: OutputFormat) -> None:
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
+
 def render_metrics(points: list[MetricPoint], fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:
         print(_json.dumps([_metric_dict(p) for p in points], default=str))
@@ -136,6 +139,7 @@ def render_metrics(points: list[MetricPoint], fmt: OutputFormat) -> None:
 
 
 # ── Anomalies ─────────────────────────────────────────────────────────────────
+
 
 def render_anomalies(
     anomalies: list[Anomaly],
@@ -185,6 +189,7 @@ def render_anomalies(
 
 # ── Watches ───────────────────────────────────────────────────────────────────
 
+
 def render_watches(watches: list[dict], fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:
         print(_json.dumps(watches, indent=2, default=str))
@@ -221,6 +226,7 @@ def render_watches(watches: list[dict], fmt: OutputFormat) -> None:
 
 # ── Traces ────────────────────────────────────────────────────────────────────
 
+
 def render_traces(traces: list[Trace], fmt: OutputFormat, service: str = "") -> None:
     if fmt == OutputFormat.json:
         print(_json.dumps([t.to_dict() for t in traces], indent=2, default=str))
@@ -233,7 +239,8 @@ def render_traces(traces: list[Trace], fmt: OutputFormat, service: str = "") -> 
         console.print(f"[dim]No traces found{f' for {service}' if service else ''}.[/dim]")
         return
     table = Table(
-        show_header=True, header_style="bold magenta",
+        show_header=True,
+        header_style="bold magenta",
         title=f"Traces — {service}" if service else "Traces",
         show_lines=True,
     )
@@ -254,10 +261,13 @@ def render_traces(traces: list[Trace], fmt: OutputFormat, service: str = "") -> 
             t.start_time.strftime("%H:%M:%S"),
         )
     console.print(table)
-    console.print("[dim]Tip: check your tracing backend (Tempo / X-Ray / Cloud Trace) for the full waterfall.[/dim]")
+    console.print(
+        "[dim]Tip: check your tracing backend (Tempo / X-Ray / Cloud Trace) for the full waterfall.[/dim]"
+    )
 
 
 # ── Diff ──────────────────────────────────────────────────────────────────────
+
 
 def render_diff(diff: dict, fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:
@@ -281,16 +291,33 @@ def render_diff(diff: dict, fmt: OutputFormat) -> None:
         return "[dim]═  0[/dim]"
 
     table = Table(
-        show_header=True, header_style="bold magenta",
-        title=f"Window Diff — {diff.get('service', '')}", show_lines=True,
+        show_header=True,
+        header_style="bold magenta",
+        title=f"Window Diff — {diff.get('service', '')}",
+        show_lines=True,
     )
     table.add_column("Metric", width=20)
     table.add_column(f"Baseline ({baseline.get('window', '?')})", justify="right", width=20)
     table.add_column(f"Now ({compare.get('window', '?')})", justify="right", width=16)
     table.add_column("Delta", justify="right", width=12)
-    table.add_row("Error count",    str(baseline.get("error_count", 0)),    str(compare.get("error_count", 0)),    _arrow(delta_errors))
-    table.add_row("Anomaly count",  str(baseline.get("anomaly_count", 0)),  str(compare.get("anomaly_count", 0)),  _arrow(delta_anomalies))
-    table.add_row("Severity score", str(baseline.get("severity_score", 0)), str(compare.get("severity_score", 0)), _arrow(delta_sev))
+    table.add_row(
+        "Error count",
+        str(baseline.get("error_count", 0)),
+        str(compare.get("error_count", 0)),
+        _arrow(delta_errors),
+    )
+    table.add_row(
+        "Anomaly count",
+        str(baseline.get("anomaly_count", 0)),
+        str(compare.get("anomaly_count", 0)),
+        _arrow(delta_anomalies),
+    )
+    table.add_row(
+        "Severity score",
+        str(baseline.get("severity_score", 0)),
+        str(compare.get("severity_score", 0)),
+        _arrow(delta_sev),
+    )
     console.print(table)
 
     new_anomalies = diff.get("new_anomalies", [])
@@ -298,16 +325,21 @@ def render_diff(diff: dict, fmt: OutputFormat) -> None:
     if new_anomalies:
         console.print(f"\n[red bold]New anomalies ({len(new_anomalies)}):[/red bold]")
         for a in new_anomalies:
-            console.print(f"  [red]•[/red] [{SEVERITY_COLORS.get(a.get('severity','').lower(),'white')}]{a.get('severity','?').upper()}[/] {a.get('metric','?')} — {a.get('description','')[:80]}")
+            console.print(
+                f"  [red]•[/red] [{SEVERITY_COLORS.get(a.get('severity', '').lower(), 'white')}]{a.get('severity', '?').upper()}[/] {a.get('metric', '?')} — {a.get('description', '')[:80]}"
+            )
     if resolved:
         console.print(f"\n[green bold]Resolved ({len(resolved)}):[/green bold]")
         for a in resolved:
-            console.print(f"  [green]✓[/green] {a.get('metric','?')} — {a.get('description','')[:80]}")
+            console.print(
+                f"  [green]✓[/green] {a.get('metric', '?')} — {a.get('description', '')[:80]}"
+            )
     if not new_anomalies and not resolved:
         console.print("\n[dim]No new or resolved anomalies between windows.[/dim]")
 
 
 # ── SLO ───────────────────────────────────────────────────────────────────────
+
 
 def render_slo(slo: dict, fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:
@@ -327,23 +359,31 @@ def render_slo(slo: dict, fmt: OutputFormat) -> None:
     status_label = "✓ MEETING SLO" if status == "ok" else "✗ SLO BREACH"
 
     table = Table(
-        show_header=False, show_lines=True,
+        show_header=False,
+        show_lines=True,
         title=f"SLO — {slo.get('service', '')} (window: {slo.get('window', '?')})",
     )
     table.add_column("Metric", width=22, style="bold")
     table.add_column("Value")
-    table.add_row("Status",           f"[{status_style}]{status_label}[/{status_style}]")
-    table.add_row("Availability",     f"{avail:.4f}%  (target: {target}%)")
-    table.add_row("Total requests",   str(slo.get("total_requests", 0)))
-    table.add_row("Error count",      str(slo.get("error_count", 0)))
-    table.add_row("Error budget used", f"{slo.get('budget_used', 0)} / {slo.get('budget_total', 0):.0f} requests")
+    table.add_row("Status", f"[{status_style}]{status_label}[/{status_style}]")
+    table.add_row("Availability", f"{avail:.4f}%  (target: {target}%)")
+    table.add_row("Total requests", str(slo.get("total_requests", 0)))
+    table.add_row("Error count", str(slo.get("error_count", 0)))
+    table.add_row(
+        "Error budget used",
+        f"{slo.get('budget_used', 0)} / {slo.get('budget_total', 0):.0f} requests",
+    )
     table.add_row("Budget remaining", f"{budget_rem:.1f}%")
     burn_style = "bold red" if burn_rate > 2 else "yellow" if burn_rate > 1 else "green"
-    table.add_row("Burn rate", f"[{burn_style}]{burn_rate:.2f}×[/{burn_style}]  (>1 = consuming budget faster than sustainable)")
+    table.add_row(
+        "Burn rate",
+        f"[{burn_style}]{burn_rate:.2f}×[/{burn_style}]  (>1 = consuming budget faster than sustainable)",
+    )
     console.print(table)
 
 
 # ── Deploys ───────────────────────────────────────────────────────────────────
+
 
 def render_deploys(data: dict, fmt: OutputFormat, correlate: bool = False) -> None:
     deploys = data.get("deploys", [])
@@ -355,7 +395,9 @@ def render_deploys(data: dict, fmt: OutputFormat, correlate: bool = False) -> No
             print(_json.dumps(d, default=str))
         return
     if not deploys:
-        console.print(f"[dim]No deploys found for {data.get('service', '?')} in {data.get('since', '?')}.[/dim]")
+        console.print(
+            f"[dim]No deploys found for {data.get('service', '?')} in {data.get('since', '?')}.[/dim]"
+        )
         return
 
     title = f"Deploys — {data.get('service', '')} ({data.get('since', '?')})"
@@ -371,14 +413,14 @@ def render_deploys(data: dict, fmt: OutputFormat, correlate: bool = False) -> No
         table.add_column("Nearby Anomalies", overflow="fold")
 
     for d in deploys:
-        sha     = d.get("sha", "?")
-        msg     = d.get("message", "")
-        author  = (d.get("author") or "?")[:15]
-        ts      = (d.get("timestamp") or "")[:19].replace("T", " ")
-        nearby  = d.get("anomalies_nearby", [])
+        sha = d.get("sha", "?")
+        msg = d.get("message", "")
+        author = (d.get("author") or "?")[:15]
+        ts = (d.get("timestamp") or "")[:19].replace("T", " ")
+        nearby = d.get("anomalies_nearby", [])
         if correlate:
             nearby_str = ("\n".join(f"• {n}" for n in nearby[:3])) if nearby else "[dim]none[/dim]"
-            sha_style  = "red bold" if nearby else "white"
+            sha_style = "red bold" if nearby else "white"
             table.add_row(f"[{sha_style}]{sha}[/{sha_style}]", msg, author, ts, nearby_str)
         else:
             table.add_row(sha, msg, author, ts)
@@ -386,6 +428,7 @@ def render_deploys(data: dict, fmt: OutputFormat, correlate: bool = False) -> No
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
+
 
 def render_alerts(alerts: list[dict], fmt: OutputFormat) -> None:
     if fmt == OutputFormat.json:

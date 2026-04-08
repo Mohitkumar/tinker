@@ -22,6 +22,7 @@ def _github_client():
     """Return a configured PyGithub client, or raise HTTPException if not configured."""
     try:
         from tinker import toml_config as tc
+
         cfg = tc.get()
         github_cfg = getattr(cfg, "github", None)
         token = getattr(github_cfg, "token", None) if github_cfg else None
@@ -32,6 +33,7 @@ def _github_client():
                 detail="GitHub not configured — set github.token and github.repo in config.toml",
             )
         from github import Github
+
         return Github(token), repo_name
     except HTTPException:
         raise
@@ -51,7 +53,11 @@ async def list_deploys(
 
     unit = since[-1]
     value = int(since[:-1])
-    delta = {"d": timedelta(days=value), "h": timedelta(hours=value), "m": timedelta(minutes=value)}.get(unit)
+    delta = {
+        "d": timedelta(days=value),
+        "h": timedelta(hours=value),
+        "m": timedelta(minutes=value),
+    }.get(unit)
     if not delta:
         raise HTTPException(status_code=422, detail=f"Unknown since unit '{unit}'")
     since_dt = datetime.now(timezone.utc) - delta
@@ -100,7 +106,11 @@ async def correlate_deploys(
 
     unit = since[-1]
     value = int(since[:-1])
-    delta = {"d": timedelta(days=value), "h": timedelta(hours=value), "m": timedelta(minutes=value)}.get(unit)
+    delta = {
+        "d": timedelta(days=value),
+        "h": timedelta(hours=value),
+        "m": timedelta(minutes=value),
+    }.get(unit)
     if not delta:
         raise HTTPException(status_code=422, detail=f"Unknown since unit '{unit}'")
     since_dt = datetime.now(timezone.utc) - delta
@@ -156,7 +166,9 @@ async def correlate_deploys(
 
         correlated.append({**d, "anomalies_nearby": nearby_anomalies})
 
-    log.info("deploys.correlated", service=service, deploys=len(deploys), anomalies=len(anomaly_list))
+    log.info(
+        "deploys.correlated", service=service, deploys=len(deploys), anomalies=len(anomaly_list)
+    )
     return {
         "service": service,
         "since": since,

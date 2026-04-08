@@ -16,4 +16,5 @@ def get_client(url_override: str | None = None) -> RemoteClient:
     cfg = resolve(url_override=url_override)
     return RemoteClient(cfg)
 
+
 __all__ = ["RemoteClient", "get_client"]

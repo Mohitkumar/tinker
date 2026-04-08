@@ -16,26 +16,34 @@ from tinker.query.ast import AndExpr, FieldFilter, NotExpr, OrExpr, QueryNode, T
 from tinker.query.resource import AZURE_TABLE
 
 _SEVERITY_MAP: dict[str, str] = {
-    "debug":       "Verbose",
-    "verbose":     "Verbose",
-    "info":        "Information",
+    "debug": "Verbose",
+    "verbose": "Verbose",
+    "info": "Information",
     "information": "Information",
-    "warn":        "Warning",
-    "warning":     "Warning",
-    "error":       "Error",
-    "critical":    "Critical",
-    "fatal":       "Critical",
+    "warn": "Warning",
+    "warning": "Warning",
+    "error": "Error",
+    "critical": "Critical",
+    "fatal": "Critical",
 }
 
 # Per-table column names for common fields
 _TABLE_FIELD_MAP: dict[str, dict[str, str]] = {
-    "AppTraces":              {"level": "SeverityLevel",  "service": "AppRoleName",    "message": "Message"},
-    "ContainerLog":           {"level": "LogEntrySource", "service": "ContainerName",  "message": "LogEntry"},
-    "AppServiceConsoleLogs":  {"level": "Level",          "service": "ScmType",        "message": "ResultDescription"},
-    "Syslog":                 {"level": "SeverityLevel",  "service": "Computer",       "message": "SyslogMessage"},
-    "FunctionAppLogs":        {"level": "Level",          "service": "FunctionName",   "message": "Message"},
-    "ApiManagementGatewayLogs": {"level": "IsRequestSuccess", "service": "ServiceName", "message": "ResponseBody"},
-    "AzureDiagnostics":       {"level": "Level",          "service": "ResourceId",     "message": "log_s"},
+    "AppTraces": {"level": "SeverityLevel", "service": "AppRoleName", "message": "Message"},
+    "ContainerLog": {"level": "LogEntrySource", "service": "ContainerName", "message": "LogEntry"},
+    "AppServiceConsoleLogs": {
+        "level": "Level",
+        "service": "ScmType",
+        "message": "ResultDescription",
+    },
+    "Syslog": {"level": "SeverityLevel", "service": "Computer", "message": "SyslogMessage"},
+    "FunctionAppLogs": {"level": "Level", "service": "FunctionName", "message": "Message"},
+    "ApiManagementGatewayLogs": {
+        "level": "IsRequestSuccess",
+        "service": "ServiceName",
+        "message": "ResponseBody",
+    },
+    "AzureDiagnostics": {"level": "Level", "service": "ResourceId", "message": "log_s"},
 }
 
 _DEFAULT_FIELD_MAP = {"level": "SeverityLevel", "service": "ServiceName", "message": "Message"}
@@ -60,11 +68,7 @@ def translate(node: QueryNode, field_map: dict[str, str]) -> str:
 
     if isinstance(node, FieldFilter):
         kql_field = field_map.get(node.field, node.field)
-        values = (
-            [_kql_severity(v) for v in node.values]
-            if node.field == "level"
-            else node.values
-        )
+        values = [_kql_severity(v) for v in node.values] if node.field == "level" else node.values
         if len(values) == 1:
             return f'{kql_field} == "{values[0]}"'
         vals_str = ", ".join(f'"{v}"' for v in values)
@@ -72,8 +76,10 @@ def translate(node: QueryNode, field_map: dict[str, str]) -> str:
 
     if isinstance(node, AndExpr):
         l, r = translate(node.left, field_map), translate(node.right, field_map)
-        if not l: return r
-        if not r: return l
+        if not l:
+            return r
+        if not r:
+            return l
         return f"({l}) and ({r})"
 
     if isinstance(node, OrExpr):
@@ -90,14 +96,10 @@ def to_kql_where(node: QueryNode, service: str, resource_type: str | None = None
     """Return a complete KQL query with the correct table and service filter."""
     table = AZURE_TABLE.get(resource_type.lower(), "AppTraces") if resource_type else "AppTraces"
     field_map = _get_field_map(table)
-    svc_col   = field_map.get("service", "ServiceName")
-    expr      = translate(node, field_map)
+    svc_col = field_map.get("service", "ServiceName")
+    expr = translate(node, field_map)
 
     service_clause = f'{svc_col} == "{service}"'
-    where_clause   = f"{service_clause} and ({expr})" if expr else service_clause
+    where_clause = f"{service_clause} and ({expr})" if expr else service_clause
 
-    return (
-        f"{table}\n"
-        f"| where {where_clause}\n"
-        "| order by TimeGenerated desc"
-    )
+    return f"{table}\n| where {where_clause}\n| order by TimeGenerated desc"

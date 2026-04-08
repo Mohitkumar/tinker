@@ -8,7 +8,15 @@ from typing import Any
 import structlog
 
 from datetime import timedelta
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    Trace,
+    TraceSpan,
+)
+
 log = structlog.get_logger(__name__)
 
 
@@ -146,7 +154,11 @@ class ElasticBackend(ObservabilityBackend):
         """Fetch traces from Elastic APM (traces-* or apm-* indices)."""
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
         end = datetime.now(timezone.utc)
         start = end - delta
 
@@ -163,8 +175,14 @@ class ElasticBackend(ObservabilityBackend):
         body: dict = {
             "size": limit,
             "sort": [{"@timestamp": {"order": "desc"}}],
-            "_source": ["trace.id", "transaction.name", "transaction.duration.us",
-                        "transaction.result", "@timestamp", "service.name"],
+            "_source": [
+                "trace.id",
+                "transaction.name",
+                "transaction.duration.us",
+                "transaction.result",
+                "@timestamp",
+                "service.name",
+            ],
             "query": {"bool": {"must": must}},
         }
 
@@ -188,15 +206,17 @@ class ElasticBackend(ObservabilityBackend):
                     ts = datetime.now(timezone.utc)
                 dur_us = float((src.get("transaction") or {}).get("duration", {}).get("us") or 0)
                 result = (src.get("transaction") or {}).get("result", "")
-                traces.append(Trace(
-                    trace_id=((src.get("trace") or {}).get("id") or hit["_id"])[:16],
-                    service=service,
-                    operation_name=(src.get("transaction") or {}).get("name", "unknown"),
-                    start_time=ts,
-                    duration_ms=dur_us / 1000,
-                    span_count=1,
-                    status="error" if "error" in result.lower() else "ok",
-                ))
+                traces.append(
+                    Trace(
+                        trace_id=((src.get("trace") or {}).get("id") or hit["_id"])[:16],
+                        service=service,
+                        operation_name=(src.get("transaction") or {}).get("name", "unknown"),
+                        start_time=ts,
+                        duration_ms=dur_us / 1000,
+                        span_count=1,
+                        status="error" if "error" in result.lower() else "ok",
+                    )
+                )
             except Exception:
                 continue
         return traces
@@ -213,7 +233,7 @@ class ElasticBackend(ObservabilityBackend):
         anomalies: list[Anomaly] = []
 
         error_logs = await self.query_logs(
-            service, 'log.level:(ERROR OR CRITICAL)', start, end, limit=200
+            service, "log.level:(ERROR OR CRITICAL)", start, end, limit=200
         )
         if len(error_logs) > 10:
             representative, summary = self._summarize_logs(error_logs, window_minutes)

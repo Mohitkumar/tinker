@@ -25,15 +25,15 @@ log = structlog.get_logger(__name__)
 
 # Lazy registry — values are import paths to avoid loading all SDKs at startup.
 _REGISTRY: dict[str, str] = {
-    "cloudwatch":    "tinker.backends.cloudwatch:CloudWatchBackend",
-    "gcp":           "tinker.backends.gcp:GCPBackend",
-    "azure":         "tinker.backends.azure:AzureBackend",
-    "grafana":       "tinker.backends.grafana:GrafanaBackend",
-    "datadog":       "tinker.backends.datadog:DatadogBackend",
-    "elastic":       "tinker.backends.elastic:ElasticBackend",
+    "cloudwatch": "tinker.backends.cloudwatch:CloudWatchBackend",
+    "gcp": "tinker.backends.gcp:GCPBackend",
+    "azure": "tinker.backends.azure:AzureBackend",
+    "grafana": "tinker.backends.grafana:GrafanaBackend",
+    "datadog": "tinker.backends.datadog:DatadogBackend",
+    "elastic": "tinker.backends.elastic:ElasticBackend",
     "elasticsearch": "tinker.backends.elastic:ElasticBackend",
-    "opensearch":    "tinker.backends.elastic:ElasticBackend",
-    "otel":          "tinker.backends.otel:OTelBackend",
+    "opensearch": "tinker.backends.elastic:ElasticBackend",
+    "otel": "tinker.backends.otel:OTelBackend",
 }
 
 # Cache of named backend instances (keyed by TOML backend name or type string)
@@ -56,6 +56,7 @@ def _make_backend(type_key: str, config: dict | None = None) -> ObservabilityBac
 def get_backend() -> ObservabilityBackend:
     """Return the backend for the active profile."""
     from tinker import toml_config as tc
+
     cfg = tc.get()
     profile = cfg.active_profile_config()
     if not profile:

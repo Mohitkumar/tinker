@@ -198,6 +198,7 @@ class WatchManager:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _anomaly_hash(anomalies: list) -> str:
     key = json.dumps(
         sorted([(a.service, a.metric, a.severity) for a in anomalies]),
@@ -206,15 +207,19 @@ def _anomaly_hash(anomalies: list) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-async def _post_slack_legacy(anomalies: list, service: str, channel: str | None, watch_id: str) -> None:
+async def _post_slack_legacy(
+    anomalies: list, service: str, channel: str | None, watch_id: str
+) -> None:
     """Backward-compatible Slack post for setups without [notifiers] in config.toml."""
     try:
         from tinker import toml_config as tc
+
         slack = tc.get().slack
         if not slack.bot_token:
             return
         ch = channel or slack.alerts_channel
         from slack_sdk.web.async_client import AsyncWebClient
+
         client = AsyncWebClient(token=slack.bot_token)
 
         lines = [f"*Tinker Watch* — `{service}`  [{watch_id}]", ""]
@@ -231,4 +236,5 @@ async def _post_slack_legacy(anomalies: list, service: str, channel: str | None,
 
 def _now() -> str:
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()

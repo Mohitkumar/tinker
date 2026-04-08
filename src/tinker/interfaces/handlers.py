@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 # ── Time parsing ──────────────────────────────────────────────────────────────
 
+
 def parse_since(since: str) -> tuple[datetime, int]:
     """Parse a since string into ``(start_datetime, window_minutes)``.
 
@@ -45,6 +46,7 @@ def parse_since(since: str) -> tuple[datetime, int]:
 
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
+
 
 async def get_logs(
     client: RemoteClient,
@@ -72,6 +74,7 @@ async def stream_logs(
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
+
 async def get_metrics(
     client: RemoteClient,
     service: str,
@@ -85,6 +88,7 @@ async def get_metrics(
 
 
 # ── Anomalies ─────────────────────────────────────────────────────────────────
+
 
 async def get_anomalies(
     client: RemoteClient,
@@ -101,6 +105,7 @@ async def get_anomalies(
 
 
 # ── Watches ───────────────────────────────────────────────────────────────────
+
 
 async def start_watch(
     client: RemoteClient,
@@ -131,6 +136,7 @@ async def delete_watch(client: RemoteClient, watch_id: str) -> None:
 
 # ── Traces ────────────────────────────────────────────────────────────────────
 
+
 async def get_traces(
     client: RemoteClient,
     service: str,
@@ -142,6 +148,7 @@ async def get_traces(
 
 
 # ── Diff (client-side comparison of two time windows) ────────────────────────
+
 
 async def get_diff(
     client: RemoteClient,
@@ -159,7 +166,11 @@ async def get_diff(
     def _window(since: str) -> tuple[datetime, datetime, int]:
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}[unit]
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }[unit]
         return now - delta, now, int(delta.total_seconds() / 60)
 
     compare_start, compare_end, compare_window = _window(compare)
@@ -170,9 +181,14 @@ async def get_diff(
     baseline_start = baseline_end - baseline_duration
 
     import asyncio as _asyncio
+
     (b_logs, c_logs, b_anomalies, c_anomalies) = await _asyncio.gather(
-        client.query_logs(service, "level:ERROR OR level:CRITICAL", baseline_start, baseline_end, limit=1000),
-        client.query_logs(service, "level:ERROR OR level:CRITICAL", compare_start, compare_end, limit=1000),
+        client.query_logs(
+            service, "level:ERROR OR level:CRITICAL", baseline_start, baseline_end, limit=1000
+        ),
+        client.query_logs(
+            service, "level:ERROR OR level:CRITICAL", compare_start, compare_end, limit=1000
+        ),
         client.detect_anomalies(service, window_minutes=baseline_window),
         client.detect_anomalies(service, window_minutes=compare_window),
     )
@@ -183,17 +199,36 @@ async def get_diff(
 
     return {
         "service": service,
-        "baseline": {"window": baseline, "start": baseline_start.isoformat(), "end": baseline_end.isoformat(), "error_count": len(b_logs), "anomaly_count": len(b_anomalies), "severity_score": _sev_score(b_anomalies)},
-        "compare": {"window": compare, "start": compare_start.isoformat(), "end": compare_end.isoformat(), "error_count": len(c_logs), "anomaly_count": len(c_anomalies), "severity_score": _sev_score(c_anomalies)},
+        "baseline": {
+            "window": baseline,
+            "start": baseline_start.isoformat(),
+            "end": baseline_end.isoformat(),
+            "error_count": len(b_logs),
+            "anomaly_count": len(b_anomalies),
+            "severity_score": _sev_score(b_anomalies),
+        },
+        "compare": {
+            "window": compare,
+            "start": compare_start.isoformat(),
+            "end": compare_end.isoformat(),
+            "error_count": len(c_logs),
+            "anomaly_count": len(c_anomalies),
+            "severity_score": _sev_score(c_anomalies),
+        },
         "delta_errors": len(c_logs) - len(b_logs),
         "delta_anomalies": len(c_anomalies) - len(b_anomalies),
         "delta_severity": _sev_score(c_anomalies) - _sev_score(b_anomalies),
-        "new_anomalies": [a.to_dict() for a in c_anomalies if not any(b.metric == a.metric for b in b_anomalies)],
-        "resolved_anomalies": [a.to_dict() for a in b_anomalies if not any(c.metric == a.metric for c in c_anomalies)],
+        "new_anomalies": [
+            a.to_dict() for a in c_anomalies if not any(b.metric == a.metric for b in b_anomalies)
+        ],
+        "resolved_anomalies": [
+            a.to_dict() for a in b_anomalies if not any(c.metric == a.metric for c in c_anomalies)
+        ],
     }
 
 
 # ── SLO ───────────────────────────────────────────────────────────────────────
+
 
 async def get_slo(
     client: RemoteClient,
@@ -206,7 +241,10 @@ async def get_slo(
 
 # ── Deploys ───────────────────────────────────────────────────────────────────
 
-async def get_deploys(client: RemoteClient, service: str, since: str = "7d", limit: int = 10) -> dict:
+
+async def get_deploys(
+    client: RemoteClient, service: str, since: str = "7d", limit: int = 10
+) -> dict:
     return await client.get_deploys(service, since=since, limit=limit)
 
 
@@ -215,6 +253,7 @@ async def correlate_deploys(client: RemoteClient, service: str, since: str = "7d
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
+
 
 async def create_alert(
     client: RemoteClient,
@@ -226,7 +265,9 @@ async def create_alert(
     notifier: str | None = None,
     destination: str | None = None,
 ) -> dict:
-    return await client.create_alert(service, metric, operator, threshold, severity, notifier, destination)
+    return await client.create_alert(
+        service, metric, operator, threshold, severity, notifier, destination
+    )
 
 
 async def get_alerts(client: RemoteClient) -> list[dict]:

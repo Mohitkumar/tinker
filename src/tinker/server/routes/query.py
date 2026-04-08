@@ -26,6 +26,7 @@ router = APIRouter(prefix="/api/v1", tags=["query"])
 
 # ── Request models ────────────────────────────────────────────────────────────
 
+
 class LogsRequest(BaseModel):
     service: str
     query: str = "*"
@@ -62,6 +63,7 @@ class SLORequest(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/logs")
 async def query_logs(
     req: LogsRequest,
@@ -69,7 +71,9 @@ async def query_logs(
 ) -> dict[str, Any]:
     backend = get_backend_for_service(req.service)
     try:
-        entries = await backend.query_logs(req.service, req.query, req.start, req.end, req.limit, req.resource_type)
+        entries = await backend.query_logs(
+            req.service, req.query, req.start, req.end, req.limit, req.resource_type
+        )
     except ServiceNotFoundError as exc:
         log.warning("query.logs.service_not_found", service=req.service)
         raise HTTPException(status_code=404, detail=str(exc))
@@ -136,9 +140,7 @@ async def detect_anomalies(
         log.error("query.anomalies.error", service=req.service, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Backend error: {exc}")
     log.debug("query.anomalies", service=req.service, count=len(anomalies))
-    return {
-        "anomalies": [a.to_dict() for a in anomalies]
-    }
+    return {"anomalies": [a.to_dict() for a in anomalies]}
 
 
 @router.post("/traces")
@@ -148,7 +150,9 @@ async def get_traces(
 ) -> dict[str, Any]:
     backend = get_backend_for_service(req.service)
     try:
-        traces = await backend.get_traces(req.service, since=req.since, limit=req.limit, tags=req.tags)
+        traces = await backend.get_traces(
+            req.service, since=req.since, limit=req.limit, tags=req.tags
+        )
     except ServiceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
@@ -165,16 +169,22 @@ async def compute_slo(
 ) -> dict[str, Any]:
     """Compute SLO availability and error budget from log-based error rate."""
     from datetime import timedelta
+
     backend = get_backend_for_service(req.service)
 
     # Parse window (supports d/h/m)
     unit = req.window[-1]
     value = int(req.window[:-1])
-    delta = {"d": timedelta(days=value), "h": timedelta(hours=value), "m": timedelta(minutes=value)}.get(unit)
+    delta = {
+        "d": timedelta(days=value),
+        "h": timedelta(hours=value),
+        "m": timedelta(minutes=value),
+    }.get(unit)
     if delta is None:
         raise HTTPException(status_code=422, detail=f"Unknown window unit '{unit}' — use d/h/m")
 
     from datetime import timezone
+
     end = datetime.now(timezone.utc)
     start = end - delta
 
@@ -190,9 +200,11 @@ async def compute_slo(
     total = len(all_logs)
     errors = len(error_logs)
     availability = ((total - errors) / total * 100) if total > 0 else 100.0
-    budget_total = (100 - req.target_pct) / 100 * total   # allowed error requests
+    budget_total = (100 - req.target_pct) / 100 * total  # allowed error requests
     budget_used = errors
-    budget_remaining_pct = max(0.0, (budget_total - budget_used) / budget_total * 100) if budget_total > 0 else 100.0
+    budget_remaining_pct = (
+        max(0.0, (budget_total - budget_used) / budget_total * 100) if budget_total > 0 else 100.0
+    )
 
     # Burn rate: how many times faster than "sustainable" we're consuming the budget
     # Sustainable = consume 100% of budget over the full window

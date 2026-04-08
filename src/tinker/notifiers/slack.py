@@ -30,6 +30,7 @@ class SlackNotifier(AlertNotifier):
         ch = destination or self._default_channel
         try:
             from slack_sdk.web.async_client import AsyncWebClient
+
             client = AsyncWebClient(token=self._token)
             lines = [f"*Tinker Watch* — `{service}`  [{watch_id}]", ""]
             for a in anomalies[:5]:

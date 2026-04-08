@@ -31,10 +31,7 @@ class ServerConfig:
         # Env var takes priority over stored config (allows per-session override)
         key = os.environ.get(self.api_key_env, "") or _read_config().get("token", "")
         if not key:
-            raise RuntimeError(
-                "Tinker API token not set.\n"
-                "Run: tinker init cli"
-            )
+            raise RuntimeError("Tinker API token not set.\nRun: tinker init cli")
         return key
 
 

@@ -54,20 +54,31 @@ def start(
         log_level = "debug"
         logging.basicConfig(level=logging.DEBUG)
         for _noisy in (
-            "httpcore", "httpx", "hpack", "h11", "h2",
-            "botocore", "boto3", "urllib3", "asyncio",
-            "google.auth", "google.api_core",
-            "azure.core", "azure.identity",
+            "httpcore",
+            "httpx",
+            "hpack",
+            "h11",
+            "h2",
+            "botocore",
+            "boto3",
+            "urllib3",
+            "asyncio",
+            "google.auth",
+            "google.api_core",
+            "azure.core",
+            "azure.identity",
         ):
             logging.getLogger(_noisy).setLevel(logging.WARNING)
 
-    console.print(Panel.fit(
-        f"[bold cyan]Tinker Server[/bold cyan]  [dim]v{__version__}[/dim]\n"
-        f"Listening on [bold]http://{host}:{port}[/bold]\n"
-        f"Docs: [link]http://{host}:{port}/docs[/link]"
-        + ("\n[yellow]debug mode — backend queries will be logged[/yellow]" if debug else ""),
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Tinker Server[/bold cyan]  [dim]v{__version__}[/dim]\n"
+            f"Listening on [bold]http://{host}:{port}[/bold]\n"
+            f"Docs: [link]http://{host}:{port}/docs[/link]"
+            + ("\n[yellow]debug mode — backend queries will be logged[/yellow]" if debug else ""),
+            border_style="cyan",
+        )
+    )
 
     uvicorn.run(
         "tinker.server.app:create_app",
@@ -87,6 +98,7 @@ def init_server() -> None:
     an API key, and writes [bold]~/.tinkr/config.toml[/bold] + [bold]~/.tinkr/.env[/bold].
     """
     from tinker.interfaces.init_wizard import ServerWizard
+
     ServerWizard().run()
 
 

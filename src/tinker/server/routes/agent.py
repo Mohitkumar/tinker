@@ -40,6 +40,7 @@ _CODE_CONTEXT_LINES = 30
 
 # ── Request / response models ─────────────────────────────────────────────────
 
+
 class ExplainRequest(BaseModel):
     anomaly: dict[str, Any]
 
@@ -50,9 +51,9 @@ class FixRequest(BaseModel):
 
 class FileChange(BaseModel):
     path: str
-    new_content: str        # full file content after applying the edit
-    old_string: str = ""    # the exact original lines that were replaced
-    new_string: str = ""    # the replacement lines
+    new_content: str  # full file content after applying the edit
+    old_string: str = ""  # the exact original lines that were replaced
+    new_string: str = ""  # the replacement lines
 
 
 class ApproveRequest(BaseModel):
@@ -63,11 +64,13 @@ class ApproveRequest(BaseModel):
 
 # ── SSE helper ────────────────────────────────────────────────────────────────
 
+
 def _sse(data: str) -> str:
     return f"data: {json.dumps({'text': data})}\n\n"
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
 
 @router.post("/explain")
 async def explain(
@@ -85,11 +88,13 @@ async def explain(
 
     # Classify to decide how much code context to fetch
     error_class = classify(anomaly)
-    log.info("explain.start",
-             actor=auth.subject,
-             metric=anomaly.get("metric"),
-             error_class=error_class.kind,
-             confidence=error_class.confidence)
+    log.info(
+        "explain.start",
+        actor=auth.subject,
+        metric=anomaly.get("metric"),
+        error_class=error_class.kind,
+        confidence=error_class.confidence,
+    )
 
     context_block = build_explain_context(anomaly)
     code_context = _fetch_code_context(error_class, service, deep=error_class.kind == "logic_bug")
@@ -98,29 +103,28 @@ async def explain(
     code_section = ""
     if code_context:
         code_section = (
-            "\n\n--- Relevant Code (from GitHub) ---\n"
-            + code_context +
-            "\n--- End Code ---"
+            "\n\n--- Relevant Code (from GitHub) ---\n" + code_context + "\n--- End Code ---"
         )
 
     classification_hint = (
-        f"\nError classification: {error_class.kind.upper()} "
-        f"({error_class.reason})\n"
+        f"\nError classification: {error_class.kind.upper()} ({error_class.reason})\n"
     )
 
     prompt = (
         "You are an expert SRE analysing a production anomaly.\n"
-        + classification_hint +
-        "Based on the anomaly summary"
-        + (" and the relevant source code" if code_context else "") +
-        " below, explain:\n"
+        + classification_hint
+        + "Based on the anomaly summary"
+        + (" and the relevant source code" if code_context else "")
+        + " below, explain:\n"
         "1. What is happening (root cause hypothesis)\n"
         "2. Why it is happening (likely trigger)\n"
         "3. Immediate impact\n"
         "4. What to look at next\n\n"
-        + ("For TRANSIENT errors: focus on configuration, retries, timeouts, circuit breakers.\n"
-           if error_class.kind == "transient" else
-           "For LOGIC BUGS: point to the exact file and line number. Explain the code path that leads to the failure.\n")
+        + (
+            "For TRANSIENT errors: focus on configuration, retries, timeouts, circuit breakers.\n"
+            if error_class.kind == "transient"
+            else "For LOGIC BUGS: point to the exact file and line number. Explain the code path that leads to the failure.\n"
+        )
         + "\nBe concise. Focus on actionable insight.\n\n"
         "--- Anomaly Summary ---\n"
         f"{context_block}"
@@ -167,11 +171,13 @@ async def fix(
         raise HTTPException(status_code=422, detail=str(exc))
 
     error_class = classify(req.anomaly)
-    log.info("fix.start",
-             actor=auth.subject,
-             service=service,
-             error_class=error_class.kind,
-             confidence=error_class.confidence)
+    log.info(
+        "fix.start",
+        actor=auth.subject,
+        service=service,
+        error_class=error_class.kind,
+        confidence=error_class.confidence,
+    )
 
     if error_class.kind == "transient":
         staged = await _fix_transient(req.anomaly, error_class, gh)
@@ -193,8 +199,9 @@ async def fix(
     old_content = gh.get_file(path)
     diff = compute_diff(path, old_content, staged["new_content"])
 
-    log.info("fix.done", actor=auth.subject, service=service, path=path,
-             error_class=error_class.kind)
+    log.info(
+        "fix.done", actor=auth.subject, service=service, path=path, error_class=error_class.kind
+    )
     return {
         "file_changes": [{"path": path, "new_content": staged["new_content"]}],
         "explanation": staged["explanation"],
@@ -214,6 +221,7 @@ async def approve(
 
     try:
         from tinker.code.github_tools import GitHubCodeProvider
+
         gh = GitHubCodeProvider(service=req.service)
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -287,18 +295,19 @@ _LANG_RULES: dict[str, str] = {
 }
 
 _EXT_TO_LANG: dict[str, str] = {
-    ".go":   "go",
+    ".go": "go",
     ".java": "java",
-    ".py":   "python",
-    ".ts":   "typescript",
-    ".js":   "typescript",
-    ".rb":   "ruby",
+    ".py": "python",
+    ".ts": "typescript",
+    ".js": "typescript",
+    ".rb": "ruby",
 }
 
 
 def _detect_language(error_class: "ErrorClass", code_context: str) -> str | None:
     """Detect the primary language from stack trace file extensions."""
     import os
+
     for path, _ in error_class.stack_files:
         ext = os.path.splitext(path)[1].lower()
         if ext in _EXT_TO_LANG:
@@ -323,6 +332,7 @@ _UNIVERSAL_FIX_RULES = (
 
 
 # ── Fix agent implementations ─────────────────────────────────────────────────
+
 
 async def _fix_transient(
     anomaly: dict[str, Any],
@@ -363,39 +373,62 @@ async def _fix_transient(
         "  - Call propose_edit as soon as you identify the fix (max 4 turns)\n\n"
         "--- Anomaly Summary ---\n"
         f"{context_block}"
-        + (f"\n\n--- Call Site Code ---\n{call_site_code}\n--- End Code ---"
-           if call_site_code else "")
+        + (
+            f"\n\n--- Call Site Code ---\n{call_site_code}\n--- End Code ---"
+            if call_site_code
+            else ""
+        )
         + "\n--- End Summary ---"
     )
 
     # Transient fixes: only allow reading files and proposing fix
     tools = [
-        _fn("github_get_file",
+        _fn(
+            "github_get_file",
             "Read a file from the repository. Use only for files in the stack trace.",
-            {"type": "object", "properties": {
-                "path": {"type": "string"},
-                "ref":  {"type": "string"},
-            }, "required": ["path"]}),
-        _fn("propose_edit",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "ref": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+        ),
+        _fn(
+            "propose_edit",
             "Stage a surgical edit: provide ONLY the lines to change, not the whole file. "
             "old_string must be copied EXACTLY from the file (correct indentation/whitespace). "
             "If old_string is not found verbatim the edit is rejected and you must retry.",
-            {"type": "object", "properties": {
-                "path":        {"type": "string", "description": "Repo-relative file path"},
-                "old_string":  {"type": "string", "description":
-                    "The EXACT lines to replace, copied verbatim from github_get_file. "
-                    "Must be unique in the file. Include enough surrounding context "
-                    "(function signature, closing brace) to make it unambiguous."},
-                "new_string":  {"type": "string", "description":
-                    "The replacement lines. Must preserve the file's indentation style."},
-                "explanation": {"type": "string", "description":
-                    "What was wrong and exactly what lines were changed and why"},
-            }, "required": ["path", "old_string", "new_string", "explanation"]}),
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Repo-relative file path"},
+                    "old_string": {
+                        "type": "string",
+                        "description": "The EXACT lines to replace, copied verbatim from github_get_file. "
+                        "Must be unique in the file. Include enough surrounding context "
+                        "(function signature, closing brace) to make it unambiguous.",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "The replacement lines. Must preserve the file's indentation style.",
+                    },
+                    "explanation": {
+                        "type": "string",
+                        "description": "What was wrong and exactly what lines were changed and why",
+                    },
+                },
+                "required": ["path", "old_string", "new_string", "explanation"],
+            },
+        ),
     ]
 
     from tinker import toml_config as tc
-    return await _run_agent_loop(system_prompt, tools, gh, max_turns=4,
-                                 model=tc.get().llm.deep_rca_model)
+
+    return await _run_agent_loop(
+        system_prompt, tools, gh, max_turns=4, model=tc.get().llm.deep_rca_model
+    )
 
 
 async def _fix_logic_bug(
@@ -436,51 +469,85 @@ async def _fix_logic_bug(
         "  - Call propose_edit once when confident (max 12 turns)\n\n"
         "--- Anomaly Summary ---\n"
         f"{context_block}"
-        + (f"\n\n--- Stack Trace Files ---\n{call_site_code}\n--- End Code ---"
-           if call_site_code else "")
+        + (
+            f"\n\n--- Stack Trace Files ---\n{call_site_code}\n--- End Code ---"
+            if call_site_code
+            else ""
+        )
         + "\n--- End Summary ---"
     )
 
     tools = [
-        _fn("github_get_file",
+        _fn(
+            "github_get_file",
             "Read a file from the GitHub repository.",
-            {"type": "object", "properties": {
-                "path": {"type": "string", "description": "File path relative to repo root"},
-                "ref":  {"type": "string", "description": "Branch or commit SHA (optional)"},
-            }, "required": ["path"]}),
-        _fn("github_search_code",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to repo root"},
+                    "ref": {"type": "string", "description": "Branch or commit SHA (optional)"},
+                },
+                "required": ["path"],
+            },
+        ),
+        _fn(
+            "github_search_code",
             "Search the repository's code. Use to find related patterns, "
             "error handling, usages of the failing variable/function.",
-            {"type": "object", "properties": {
-                "query":       {"type": "string"},
-                "max_results": {"type": "integer", "default": 10},
-            }, "required": ["query"]}),
-        _fn("github_get_commits",
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer", "default": 10},
+                },
+                "required": ["query"],
+            },
+        ),
+        _fn(
+            "github_get_commits",
             "List recent commits touching a file. Use to find what changed recently.",
-            {"type": "object", "properties": {
-                "path": {"type": "string", "default": "."},
-                "n":    {"type": "integer", "default": 10},
-            }}),
-        _fn("propose_edit",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "default": "."},
+                    "n": {"type": "integer", "default": 10},
+                },
+            },
+        ),
+        _fn(
+            "propose_edit",
             "Stage a surgical edit: provide ONLY the lines to change, not the whole file. "
             "old_string must be copied EXACTLY from the file (correct indentation/whitespace). "
             "If old_string is not found verbatim the edit is rejected and you must retry.",
-            {"type": "object", "properties": {
-                "path":        {"type": "string", "description": "Repo-relative file path"},
-                "old_string":  {"type": "string", "description":
-                    "The EXACT lines to replace, copied verbatim from github_get_file. "
-                    "Must be unique in the file. Include enough surrounding context "
-                    "(function signature, closing brace) to make it unambiguous."},
-                "new_string":  {"type": "string", "description":
-                    "The replacement lines. Must preserve the file's indentation style."},
-                "explanation": {"type": "string", "description":
-                    "What was wrong and exactly what lines were changed and why"},
-            }, "required": ["path", "old_string", "new_string", "explanation"]}),
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Repo-relative file path"},
+                    "old_string": {
+                        "type": "string",
+                        "description": "The EXACT lines to replace, copied verbatim from github_get_file. "
+                        "Must be unique in the file. Include enough surrounding context "
+                        "(function signature, closing brace) to make it unambiguous.",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "The replacement lines. Must preserve the file's indentation style.",
+                    },
+                    "explanation": {
+                        "type": "string",
+                        "description": "What was wrong and exactly what lines were changed and why",
+                    },
+                },
+                "required": ["path", "old_string", "new_string", "explanation"],
+            },
+        ),
     ]
 
     from tinker import toml_config as tc
-    return await _run_agent_loop(system_prompt, tools, gh, max_turns=12,
-                                 model=tc.get().llm.deep_rca_model)
+
+    return await _run_agent_loop(
+        system_prompt, tools, gh, max_turns=12, model=tc.get().llm.deep_rca_model
+    )
 
 
 async def _run_agent_loop(
@@ -549,6 +616,7 @@ async def _run_agent_loop(
 
 # ── Code context fetcher ──────────────────────────────────────────────────────
 
+
 def _fetch_code_context(
     error_class: "ErrorClass",
     service: str,
@@ -565,6 +633,7 @@ def _fetch_code_context(
 
     try:
         from tinker.code.github_tools import GitHubCodeProvider
+
         gh = GitHubCodeProvider(service=service)
     except RuntimeError:
         return ""  # GitHub not configured — explain still works, just without code
@@ -593,7 +662,10 @@ def _fetch_code_context(
 
 # ── Edit application ──────────────────────────────────────────────────────────
 
-def _apply_edit(path: str, old_string: str, new_string: str, gh: "GitHubCodeProvider") -> tuple[str, str, str | None]:
+
+def _apply_edit(
+    path: str, old_string: str, new_string: str, gh: "GitHubCodeProvider"
+) -> tuple[str, str, str | None]:
     """Apply an old_string → new_string edit to a file fetched from GitHub.
 
     Returns (resolved_path, new_full_content, error_message).
@@ -629,11 +701,15 @@ def _apply_edit(path: str, old_string: str, new_string: str, gh: "GitHubCodeProv
         # Count how many lines matched to give the model useful feedback
         old_lines = old_string.splitlines()
         matched = sum(1 for l in old_lines if l in original)
-        return resolved_path, "", (
-            f"REJECTED: old_string not found verbatim in '{path}' "
-            f"({matched}/{len(old_lines)} lines matched). "
-            "Read the file again with github_get_file and copy the EXACT lines "
-            "you want to replace — including correct indentation and whitespace."
+        return (
+            resolved_path,
+            "",
+            (
+                f"REJECTED: old_string not found verbatim in '{path}' "
+                f"({matched}/{len(old_lines)} lines matched). "
+                "Read the file again with github_get_file and copy the EXACT lines "
+                "you want to replace — including correct indentation and whitespace."
+            ),
         )
 
     new_content = original.replace(old_string, new_string, 1)
@@ -642,10 +718,11 @@ def _apply_edit(path: str, old_string: str, new_string: str, gh: "GitHubCodeProv
 
 # ── RCA ───────────────────────────────────────────────────────────────────────
 
+
 class RcaRequest(BaseModel):
     service: str
     since: str = "1h"
-    severity_filter: str | None = None   # e.g. "high" — only include anomalies at this level+
+    severity_filter: str | None = None  # e.g. "high" — only include anomalies at this level+
 
 
 @router.post("/rca")
@@ -669,12 +746,18 @@ async def rca(
 
         # ── Gather evidence in parallel ──────────────────────────────────────
         from datetime import timedelta, timezone
+
         unit = req.since[-1]
         value = int(req.since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
         window_minutes = int(delta.total_seconds() / 60)
 
         import asyncio as _asyncio
+
         try:
             anomalies, traces = await _asyncio.gather(
                 backend.detect_anomalies(req.service, window_minutes=min(window_minutes, 60)),
@@ -694,8 +777,17 @@ async def rca(
         # Apply severity filter
         if req.severity_filter and isinstance(anomalies, list):
             _order = ["low", "medium", "high", "critical"]
-            min_idx = _order.index(req.severity_filter.lower()) if req.severity_filter.lower() in _order else 0
-            anomalies = [a for a in anomalies if _order.index(a.severity.lower() if a.severity.lower() in _order else "low") >= min_idx]
+            min_idx = (
+                _order.index(req.severity_filter.lower())
+                if req.severity_filter.lower() in _order
+                else 0
+            )
+            anomalies = [
+                a
+                for a in anomalies
+                if _order.index(a.severity.lower() if a.severity.lower() in _order else "low")
+                >= min_idx
+            ]
 
         # ── Build RCA prompt ─────────────────────────────────────────────────
         anomaly_section = ""
@@ -726,14 +818,22 @@ async def rca(
         code_section = ""
         if anomalies:
             from tinker.agent.error_classifier import classify
-            top = max(anomalies, key=lambda a: ["low","medium","high","critical"].index(a.severity.lower() if a.severity.lower() in ["low","medium","high","critical"] else "low"))
+
+            top = max(
+                anomalies,
+                key=lambda a: ["low", "medium", "high", "critical"].index(
+                    a.severity.lower()
+                    if a.severity.lower() in ["low", "medium", "high", "critical"]
+                    else "low"
+                ),
+            )
             ec = classify(top.to_dict())
             code_context = _fetch_code_context(ec, req.service, deep=ec.kind == "logic_bug")
             if code_context:
                 code_section = (
                     "\n\n--- Relevant Code (from GitHub) ---\n"
-                    + code_context +
-                    "\n--- End Code ---"
+                    + code_context
+                    + "\n--- End Code ---"
                 )
 
         prompt = (
@@ -756,8 +856,14 @@ async def rca(
             "Be specific, cite evidence, and prioritise actionability over completeness."
         )
 
-        log.info("rca.start", service=req.service, since=req.since,
-                 anomaly_count=len(anomalies), trace_count=len(traces), actor=auth.subject)
+        log.info(
+            "rca.start",
+            service=req.service,
+            since=req.since,
+            anomaly_count=len(anomalies),
+            trace_count=len(traces),
+            actor=auth.subject,
+        )
 
         llm = llm_mod.get_llm()
         async for chunk in llm.stream([{"role": "user", "content": prompt}]):
@@ -769,8 +875,12 @@ async def rca(
 
 # ── Tool helpers ──────────────────────────────────────────────────────────────
 
+
 def _fn(name: str, desc: str, params: dict) -> dict:
-    return {"type": "function", "function": {"name": name, "description": desc, "parameters": params}}
+    return {
+        "type": "function",
+        "function": {"name": name, "description": desc, "parameters": params},
+    }
 
 
 def _dispatch_read_tool(name: str, args: dict, gh: "GitHubCodeProvider") -> str:

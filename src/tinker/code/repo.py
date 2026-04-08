@@ -40,7 +40,9 @@ class RepoClient:
         """Return the last N commits touching a path."""
         result = subprocess.run(
             [
-                "git", "-C", str(self._root),
+                "git",
+                "-C",
+                str(self._root),
                 "log",
                 f"-{n}",
                 "--format=%H|%ae|%s|%ai",
@@ -62,9 +64,12 @@ class RepoClient:
         """Return git blame output for a specific line."""
         result = subprocess.run(
             [
-                "git", "-C", str(self._root),
+                "git",
+                "-C",
+                str(self._root),
                 "blame",
-                "-L", f"{line_number},{line_number}",
+                "-L",
+                f"{line_number},{line_number}",
                 "--porcelain",
                 file_path,
             ],

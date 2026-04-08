@@ -72,11 +72,7 @@ def make_notifier(type_key: str, options: dict[str, str]) -> AlertNotifier | Non
         if not url:
             log.warning("notifier.webhook.no_url")
             return None
-        headers = {
-            k[len("header_"):]: v
-            for k, v in options.items()
-            if k.startswith("header_")
-        }
+        headers = {k[len("header_") :]: v for k, v in options.items() if k.startswith("header_")}
         return WebhookNotifier(url=url, headers=headers)
 
     log.warning("notifier.unknown_type", type=type_key)

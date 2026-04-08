@@ -10,6 +10,7 @@ SVC = "payments-api"
 
 # ── CloudWatch ────────────────────────────────────────────────────────────────
 
+
 class TestCloudWatch:
     def _t(self, q: str) -> str:
         return translate_for("cloudwatch", parse_query(q), service=SVC)
@@ -44,6 +45,7 @@ class TestCloudWatch:
 
 
 # ── Loki / Grafana ────────────────────────────────────────────────────────────
+
 
 class TestLoki:
     def _t(self, q: str) -> str:
@@ -80,6 +82,7 @@ class TestLoki:
 
 # ── GCP ───────────────────────────────────────────────────────────────────────
 
+
 class TestGCP:
     def _t(self, q: str) -> str:
         return translate_for("gcp", parse_query(q), service=SVC)
@@ -108,6 +111,7 @@ class TestGCP:
 
 
 # ── Azure KQL ─────────────────────────────────────────────────────────────────
+
 
 class TestAzure:
     def _t(self, q: str) -> str:
@@ -141,6 +145,7 @@ class TestAzure:
 
 # ── Datadog ───────────────────────────────────────────────────────────────────
 
+
 class TestDatadog:
     def _t(self, q: str) -> str:
         return translate_for("datadog", parse_query(q), service=SVC)
@@ -170,6 +175,7 @@ class TestDatadog:
 
 
 # ── Elasticsearch ─────────────────────────────────────────────────────────────
+
 
 class TestElastic:
     def _t(self, q: str) -> dict:
@@ -210,11 +216,13 @@ class TestElastic:
 
 # ── Resource type routing ──────────────────────────────────────────────────────
 
+
 class TestResourceCloudWatch:
     """--resource controls CloudWatch log group selection, not the query filter."""
 
     def _resolve(self, resource_type: str | None) -> list[str]:
         from tinker.query.translators.cloudwatch import resolve_log_groups
+
         return resolve_log_groups(resource_type, SVC)
 
     def _t(self, q: str, resource_type: str | None = None) -> str:
@@ -332,6 +340,7 @@ class TestResourceElastic:
 
     def _index(self, resource_type: str | None) -> str:
         from tinker.query.translators.elastic import resolve_index
+
         return resolve_index(resource_type)
 
     def test_lambda_index(self):

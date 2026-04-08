@@ -50,26 +50,34 @@ def translate_for(
     match backend.lower():
         case "cloudwatch":
             from tinker.query.translators.cloudwatch import to_insights_query
+
             return to_insights_query(node, service)
 
         case "grafana" | "loki":
             from tinker.query.translators.loki import translate as loki_translate
-            return loki_translate(node, service, resource_type=resource_type, service_label=service_label)
+
+            return loki_translate(
+                node, service, resource_type=resource_type, service_label=service_label
+            )
 
         case "gcp":
             from tinker.query.translators.gcp import to_filter
+
             return to_filter(node, service, resource_type=resource_type)
 
         case "azure":
             from tinker.query.translators.azure import to_kql_where
+
             return to_kql_where(node, service, resource_type=resource_type)
 
         case "datadog":
             from tinker.query.translators.datadog import to_search_query
+
             return to_search_query(node, service)
 
         case "elastic" | "elasticsearch" | "opensearch" | "otel":
             from tinker.query.translators.elastic import to_query
+
             return to_query(node, service, resource_type=resource_type)
 
         case _:

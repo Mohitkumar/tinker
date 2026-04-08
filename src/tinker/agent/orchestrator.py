@@ -30,11 +30,12 @@ log = structlog.get_logger(__name__)
 
 # ── Data models ───────────────────────────────────────────────────────────────
 
+
 @dataclass
 class IncidentReport:
     incident_id: str
     service: str
-    severity: str          # critical | high | medium | low
+    severity: str  # critical | high | medium | low
     root_cause: str
     summary: str
     affected_services: list[str]
@@ -78,6 +79,7 @@ class AgentSession:
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
+
 
 class Orchestrator:
     """Provider-agnostic agent loop via LiteLLM.

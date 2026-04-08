@@ -14,10 +14,10 @@ _INJECTION_PATTERNS = [
     re.compile(r"ignore\s+previous\s+instructions", re.IGNORECASE),
     re.compile(r"you\s+are\s+now\s+", re.IGNORECASE),
     re.compile(r"system\s+prompt", re.IGNORECASE),
-    re.compile(r"AKIA[A-Z0-9]{16}"),          # AWS access key
-    re.compile(r"sk-ant-[A-Za-z0-9\-]+"),     # Anthropic API key
-    re.compile(r"xox[bpa]-[A-Za-z0-9\-]+"),   # Slack tokens
-    re.compile(r"ghp_[A-Za-z0-9]{36}"),       # GitHub tokens
+    re.compile(r"AKIA[A-Z0-9]{16}"),  # AWS access key
+    re.compile(r"sk-ant-[A-Za-z0-9\-]+"),  # Anthropic API key
+    re.compile(r"xox[bpa]-[A-Za-z0-9\-]+"),  # Slack tokens
+    re.compile(r"ghp_[A-Za-z0-9]{36}"),  # GitHub tokens
 ]
 
 

@@ -25,21 +25,21 @@ _RESERVED = {"service", "host", "status", "env", "source", "tags"}
 
 # Canonical Tinker field → Datadog field name (without prefix)
 _FIELD_MAP: dict[str, str] = {
-    "level":    "status",       # Datadog reserved attribute
-    "service":  "service",      # reserved
-    "message":  "message",      # reserved
-    "trace_id": "trace_id",     # custom → @trace_id
-    "span_id":  "span_id",      # custom → @span_id
+    "level": "status",  # Datadog reserved attribute
+    "service": "service",  # reserved
+    "message": "message",  # reserved
+    "trace_id": "trace_id",  # custom → @trace_id
+    "span_id": "span_id",  # custom → @span_id
 }
 
 _STATUS_MAP: dict[str, str] = {
-    "debug":    "debug",
-    "info":     "info",
-    "warn":     "warn",
-    "warning":  "warn",
-    "error":    "error",
+    "debug": "debug",
+    "info": "info",
+    "warn": "warn",
+    "warning": "warn",
+    "error": "error",
     "critical": "critical",
-    "fatal":    "critical",
+    "fatal": "critical",
 }
 
 
@@ -61,11 +61,7 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, FieldFilter):
         field = _dd_field(node.field)
-        values = (
-            [_dd_status(v) for v in node.values]
-            if node.field == "level"
-            else node.values
-        )
+        values = [_dd_status(v) for v in node.values] if node.field == "level" else node.values
         if len(values) == 1:
             return f"{field}:{values[0]}"
         vals = " OR ".join(values)

@@ -47,6 +47,7 @@ class GitHubMCPServer(TinkerMCPServer):
 
     def __init__(self) -> None:
         from tinker.config import settings
+
         super().__init__(backend=_NoOpBackend())
         self._repo_path = settings.tinker_repo_path or "."
 
@@ -61,7 +62,10 @@ class GitHubMCPServer(TinkerMCPServer):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "path": {"type": "string", "description": "File path relative to repo root"},
+                            "path": {
+                                "type": "string",
+                                "description": "File path relative to repo root",
+                            },
                         },
                         "required": ["path"],
                     },
@@ -72,7 +76,10 @@ class GitHubMCPServer(TinkerMCPServer):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "pattern": {"type": "string", "description": "Regex or literal pattern"},
+                            "pattern": {
+                                "type": "string",
+                                "description": "Regex or literal pattern",
+                            },
                             "file_glob": {"type": "string", "default": "**/*.py"},
                             "context_lines": {"type": "integer", "default": 3},
                         },
@@ -111,7 +118,10 @@ class GitHubMCPServer(TinkerMCPServer):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "diff": {"type": "string", "description": "Unified diff (--- a/ +++ b/)"},
+                            "diff": {
+                                "type": "string",
+                                "description": "Unified diff (--- a/ +++ b/)",
+                            },
                             "branch_name": {"type": "string"},
                             "title": {"type": "string"},
                             "body": {"type": "string"},
@@ -144,11 +154,13 @@ class GitHubMCPServer(TinkerMCPServer):
 
     def _handle_get_file(self, args: dict[str, Any]):
         from tinker.code.repo import RepoClient
+
         content = RepoClient(self._repo_path).read_file(args["path"])
         return self._text(content)
 
     def _handle_search_code(self, args: dict[str, Any]):
         from tinker.code.repo import RepoClient
+
         result = RepoClient(self._repo_path).search(
             pattern=args["pattern"],
             glob=args.get("file_glob", "**/*.py"),
@@ -158,6 +170,7 @@ class GitHubMCPServer(TinkerMCPServer):
 
     def _handle_recent_commits(self, args: dict[str, Any]):
         from tinker.code.repo import RepoClient
+
         commits = RepoClient(self._repo_path).recent_commits(
             service_path=args.get("path", "."),
             n=args.get("n", 10),
@@ -166,11 +179,13 @@ class GitHubMCPServer(TinkerMCPServer):
 
     def _handle_blame(self, args: dict[str, Any]):
         from tinker.code.repo import RepoClient
+
         result = RepoClient(self._repo_path).blame(args["file_path"], args["line_number"])
         return self._text(result)
 
     async def _handle_create_pr(self, args: dict[str, Any]):
         from tinker.code.fix_applier import FixApplier
+
         applier = FixApplier(self._repo_path)
         pr_url = await applier.create_pr(
             diff=args["diff"],

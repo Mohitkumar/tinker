@@ -19,11 +19,11 @@ from tinker.query.resource import CW_LOG_GROUP
 
 # Map canonical Tinker field names → CloudWatch Insights field names
 _FIELD_MAP: dict[str, str] = {
-    "level":    "level",
-    "service":  "service",
-    "message":  "@message",
+    "level": "level",
+    "service": "service",
+    "message": "@message",
     "trace_id": "traceId",
-    "span_id":  "spanId",
+    "span_id": "spanId",
 }
 
 
@@ -50,8 +50,10 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, AndExpr):
         l, r = translate(node.left), translate(node.right)
-        if l == "1 = 1": return r
-        if r == "1 = 1": return l
+        if l == "1 = 1":
+            return r
+        if r == "1 = 1":
+            return l
         return f"({l}) AND ({r})"
 
     if isinstance(node, OrExpr):
@@ -70,7 +72,7 @@ def resolve_log_groups(resource_type: str | None, service: str) -> list[str]:
     call describe_log_groups with the service name as pattern).
     """
     if resource_type is None:
-        return []   # signal: auto-discover
+        return []  # signal: auto-discover
 
     pattern = CW_LOG_GROUP.get(resource_type.lower())
     if pattern:

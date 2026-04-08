@@ -19,9 +19,11 @@ from typing import Union
 
 # ── Node types ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class TextFilter:
     """Full-text substring match — e.g. `"timeout"` or `timeout`."""
+
     text: str
     exact: bool = False  # True when the original was a quoted string
 
@@ -29,8 +31,9 @@ class TextFilter:
 @dataclass
 class FieldFilter:
     """Field equality / multi-value — e.g. `level:ERROR` or `level:(ERROR OR WARN)`."""
+
     field: str
-    values: list[str]   # always at least one element
+    values: list[str]  # always at least one element
 
     @property
     def single(self) -> str:
@@ -69,6 +72,7 @@ FIELD_ALIASES: dict[str, str] = {
     "trace": "trace_id",
     "span": "span_id",
 }
+
 
 def normalise_field(name: str) -> str:
     return FIELD_ALIASES.get(name.lower(), name.lower())

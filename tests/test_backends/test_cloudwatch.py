@@ -14,6 +14,7 @@ class TestCloudWatchBackend:
     @patch("tinker.backends.cloudwatch.boto3.Session")
     def test_init(self, mock_session_cls):
         from tinker.backends.cloudwatch import CloudWatchBackend
+
         backend = CloudWatchBackend()
         assert backend is not None
 

@@ -42,6 +42,7 @@ _transport = SseServerTransport("/mcp/messages")
 
 def _text(content: object) -> list[TextContent]:
     import json
+
     if isinstance(content, str):
         text = content
     else:
@@ -56,6 +57,7 @@ def _text(content: object) -> list[TextContent]:
 async def list_tools() -> list[Tool]:
     """Return all Tinker tools. The observability tools reflect the active backend."""
     from tinker import toml_config as tc
+
     cfg = tc.get()
     profile = cfg.active_profile_config()
     backend_name = profile.backend if profile else "unknown"
@@ -167,24 +169,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 end = datetime.now(timezone.utc)
                 start = backend._parse_since(arguments.get("since", "1h"))
                 entries = await backend.query_logs(
-                    arguments["service"], arguments["query"], start, end,
+                    arguments["service"],
+                    arguments["query"],
+                    start,
+                    end,
                     arguments.get("limit", 100),
                 )
-                return _text([
-                    {"timestamp": e.timestamp.isoformat(), "level": e.level,
-                     "message": sanitize_log_content(e.message), "trace_id": e.trace_id}
-                    for e in entries
-                ])
+                return _text(
+                    [
+                        {
+                            "timestamp": e.timestamp.isoformat(),
+                            "level": e.level,
+                            "message": sanitize_log_content(e.message),
+                            "trace_id": e.trace_id,
+                        }
+                        for e in entries
+                    ]
+                )
 
             case "get_recent_errors":
                 entries = await backend.get_recent_errors(
                     arguments["service"], arguments.get("minutes", 30)
                 )
-                return _text([
-                    {"timestamp": e.timestamp.isoformat(),
-                     "message": sanitize_log_content(e.message)}
-                    for e in entries
-                ])
+                return _text(
+                    [
+                        {
+                            "timestamp": e.timestamp.isoformat(),
+                            "message": sanitize_log_content(e.message),
+                        }
+                        for e in entries
+                    ]
+                )
 
             case "get_metrics":
                 end = datetime.now(timezone.utc)
@@ -192,7 +207,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 points = await backend.get_metrics(
                     arguments["service"], arguments["metric_name"], start, end
                 )
-                return _text([{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points])
+                return _text(
+                    [{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points]
+                )
 
             case "detect_anomalies":
                 anomalies = await backend.detect_anomalies(
@@ -202,11 +219,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             case "get_file":
                 from tinker.code.repo import RepoClient
+
                 content = RepoClient(".").read_file(arguments["path"])
                 return _text(content)
 
             case "search_code":
                 from tinker.code.repo import RepoClient
+
                 result = RepoClient(".").search(
                     arguments["pattern"],
                     arguments.get("file_glob", "**/*.py"),
@@ -215,14 +234,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return _text(result)
 
             case "suggest_fix":
-                return _text({
-                    "status": "staged",
-                    "incident_id": arguments["incident_id"],
-                    "message": (
-                        f"Fix staged for {arguments['incident_id']}. "
-                        "POST /api/v1/approve to apply."
-                    ),
-                })
+                return _text(
+                    {
+                        "status": "staged",
+                        "incident_id": arguments["incident_id"],
+                        "message": (
+                            f"Fix staged for {arguments['incident_id']}. "
+                            "POST /api/v1/approve to apply."
+                        ),
+                    }
+                )
 
             case _:
                 return _text(f"ERROR: Unknown tool '{name}'")
@@ -239,7 +260,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 async def mcp_sse(request: Request) -> Response:
     """SSE endpoint — Claude Code connects here for remote MCP."""
     async with _transport.connect_sse(
-        request.scope, request.receive, request._send  # type: ignore[attr-defined]
+        request.scope,
+        request.receive,
+        request._send,  # type: ignore[attr-defined]
     ) as streams:
         await _mcp_server.run(
             streams[0],
@@ -253,6 +276,8 @@ async def mcp_sse(request: Request) -> Response:
 async def mcp_messages(request: Request) -> Response:
     """POST endpoint for MCP message exchange (required alongside SSE)."""
     await _transport.handle_post_message(
-        request.scope, request.receive, request._send  # type: ignore[attr-defined]
+        request.scope,
+        request.receive,
+        request._send,  # type: ignore[attr-defined]
     )
     return Response()

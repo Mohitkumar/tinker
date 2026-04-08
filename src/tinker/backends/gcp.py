@@ -6,7 +6,15 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    Trace,
+    TraceSpan,
+)
+
 log = structlog.get_logger(__name__)
 
 
@@ -38,18 +46,17 @@ class GCPBackend(ObservabilityBackend):
         if "resource.labels" in query or query == "*":
             native_filter = (
                 f'resource.labels.service_name="{service}" '
-                f'AND ({query}) '
+                f"AND ({query}) "
                 f'AND timestamp>="{start.isoformat()}" '
                 f'AND timestamp<="{end.isoformat()}"'
             )
         else:
             from tinker.query import parse_query, translate_for
+
             ast = parse_query(query)
             base = translate_for("gcp", ast, service=service, resource_type=resource_type)
             native_filter = (
-                f'{base} '
-                f'AND timestamp>="{start.isoformat()}" '
-                f'AND timestamp<="{end.isoformat()}"'
+                f'{base} AND timestamp>="{start.isoformat()}" AND timestamp<="{end.isoformat()}"'
             )
         filter_str = native_filter
 
@@ -158,11 +165,16 @@ class GCPBackend(ObservabilityBackend):
 
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
         start = datetime.now(timezone.utc) - delta
 
         try:
             from google.cloud import trace_v2
+
             client = trace_v2.TraceServiceClient()
             project_name = f"projects/{self._project}"
 
@@ -172,9 +184,11 @@ class GCPBackend(ObservabilityBackend):
                     filter_str += f' AND label:"{k}:{v}"'
 
             raw_traces = await asyncio.to_thread(
-                lambda: list(client.list_traces(
-                    request={"parent": project_name, "filter": filter_str, "page_size": limit}
-                ))
+                lambda: list(
+                    client.list_traces(
+                        request={"parent": project_name, "filter": filter_str, "page_size": limit}
+                    )
+                )
             )
         except Exception as exc:
             log.warning("gcp.get_traces.error", service=service, error=str(exc))
@@ -198,30 +212,38 @@ class GCPBackend(ObservabilityBackend):
                         end_time = s_end
                     if s.status and s.status.code != 0:
                         has_error = True
-                    spans.append(TraceSpan(
-                        span_id=s.span_id,
-                        operation_name=s.display_name.value if hasattr(s.display_name, "value") else str(s.display_name),
-                        service=service,
-                        start_time=s_start,
-                        duration_ms=dur_ms,
-                        status="error" if (s.status and s.status.code != 0) else "ok",
-                        parent_span_id=s.parent_span_id or "",
-                    ))
+                    spans.append(
+                        TraceSpan(
+                            span_id=s.span_id,
+                            operation_name=s.display_name.value
+                            if hasattr(s.display_name, "value")
+                            else str(s.display_name),
+                            service=service,
+                            start_time=s_start,
+                            duration_ms=dur_ms,
+                            status="error" if (s.status and s.status.code != 0) else "ok",
+                            parent_span_id=s.parent_span_id or "",
+                        )
+                    )
                 except Exception:
                     continue
 
             root_op = spans[0].operation_name if spans else "unknown"
-            total_ms = (end_time - start_time).total_seconds() * 1000 if start_time and end_time else 0.0
-            traces.append(Trace(
-                trace_id=t.name.split("/")[-1],
-                service=service,
-                operation_name=root_op,
-                start_time=start_time or datetime.now(timezone.utc),
-                duration_ms=total_ms,
-                span_count=len(spans),
-                status="error" if has_error else "ok",
-                spans=spans,
-            ))
+            total_ms = (
+                (end_time - start_time).total_seconds() * 1000 if start_time and end_time else 0.0
+            )
+            traces.append(
+                Trace(
+                    trace_id=t.name.split("/")[-1],
+                    service=service,
+                    operation_name=root_op,
+                    start_time=start_time or datetime.now(timezone.utc),
+                    duration_ms=total_ms,
+                    span_count=len(spans),
+                    status="error" if has_error else "ok",
+                    spans=spans,
+                )
+            )
 
         return traces
 

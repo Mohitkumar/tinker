@@ -127,22 +127,29 @@ class DatadogMCPServer(TinkerMCPServer):
         entries = await self._backend.query_logs(
             args["service"], args["query"], start, end, args.get("limit", 100)
         )
-        return self._text([
-            {"timestamp": e.timestamp.isoformat(), "level": e.level,
-             "message": sanitize_log_content(e.message), "trace_id": e.trace_id}
-            for e in entries
-        ])
+        return self._text(
+            [
+                {
+                    "timestamp": e.timestamp.isoformat(),
+                    "level": e.level,
+                    "message": sanitize_log_content(e.message),
+                    "trace_id": e.trace_id,
+                }
+                for e in entries
+            ]
+        )
 
     async def _handle_get_metrics(self, args: dict[str, Any]):
         end = datetime.now(timezone.utc)
         start = self._backend._parse_since(args.get("since", "1h"))
-        points = await self._backend.get_metrics(
-            args["service"], args["metric_name"], start, end
+        points = await self._backend.get_metrics(args["service"], args["metric_name"], start, end)
+        return self._text(
+            [{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points]
         )
-        return self._text([{"timestamp": p.timestamp.isoformat(), "value": p.value} for p in points])
 
     async def _handle_search_traces(self, args: dict[str, Any]):
         from tinker.backends.datadog import DatadogBackend
+
         assert isinstance(self._backend, DatadogBackend)
         traces = await self._backend.search_traces(
             args["service"], args.get("query", "status:error"), args.get("limit", 20)

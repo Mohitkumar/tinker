@@ -38,7 +38,14 @@ from typing import Any
 
 import structlog
 
-from tinker.backends.base import Anomaly, LogEntry, MetricPoint, ObservabilityBackend, Trace, TraceSpan
+from tinker.backends.base import (
+    Anomaly,
+    LogEntry,
+    MetricPoint,
+    ObservabilityBackend,
+    Trace,
+    TraceSpan,
+)
 from tinker.backends.sanitize import sanitize_log_content
 
 log = structlog.get_logger(__name__)
@@ -84,11 +91,15 @@ class AzureBackend(ObservabilityBackend):
             kql = query
         else:
             from tinker.query import parse_query, translate_for
+
             ast = parse_query(query)
-            kql = translate_for("azure", ast, service=service, resource_type=resource_type) + f" | take {limit}"
+            kql = (
+                translate_for("azure", ast, service=service, resource_type=resource_type)
+                + f" | take {limit}"
+            )
 
         log.debug("azure.query_logs", service=service, kql=kql)
-        timespan = (end - start)
+        timespan = end - start
 
         try:
             result = await asyncio.to_thread(
@@ -105,7 +116,7 @@ class AzureBackend(ObservabilityBackend):
             log.warning("azure.query_logs.partial", status=result.status)
 
         entries: list[LogEntry] = []
-        for table in (result.tables or []):
+        for table in result.tables or []:
             col_names = [c.name for c in table.columns]
             for row in table.rows:
                 record = dict(zip(col_names, row))
@@ -122,15 +133,25 @@ class AzureBackend(ObservabilityBackend):
 
         # Normalise severity across AppTraces, AppExceptions, AzureDiagnostics
         severity_map = {
-            "Verbose": "DEBUG", "Information": "INFO",
-            "Warning": "WARN", "Error": "ERROR", "Critical": "CRITICAL",
-            0: "VERBOSE", 1: "INFO", 2: "WARN", 3: "ERROR", 4: "CRITICAL",
+            "Verbose": "DEBUG",
+            "Information": "INFO",
+            "Warning": "WARN",
+            "Error": "ERROR",
+            "Critical": "CRITICAL",
+            0: "VERBOSE",
+            1: "INFO",
+            2: "WARN",
+            3: "ERROR",
+            4: "CRITICAL",
         }
         raw_level = row.get("SeverityLevel") or row.get("Level") or "INFO"
         level = severity_map.get(raw_level, str(raw_level).upper())
 
         message = str(
-            row.get("Message") or row.get("RenderedDescription") or row.get("ResultDescription") or ""
+            row.get("Message")
+            or row.get("RenderedDescription")
+            or row.get("ResultDescription")
+            or ""
         )
 
         return LogEntry(
@@ -217,7 +238,11 @@ class AzureBackend(ObservabilityBackend):
 
         unit = since[-1]
         value = int(since[:-1])
-        delta = {"m": timedelta(minutes=value), "h": timedelta(hours=value), "d": timedelta(days=value)}.get(unit, timedelta(hours=1))
+        delta = {
+            "m": timedelta(minutes=value),
+            "h": timedelta(hours=value),
+            "d": timedelta(days=value),
+        }.get(unit, timedelta(hours=1))
 
         kql = f"""
 AppRequests
@@ -233,6 +258,7 @@ AppRequests
 """
         try:
             from azure.monitor.query import LogsQueryStatus
+
             result = await asyncio.to_thread(
                 self._logs_client.query_workspace,
                 workspace_id=self._workspace_id,
@@ -262,15 +288,17 @@ AppRequests
                 dur_ms = float(_col(row, "DurationMs") or 0)
                 span_count = int(_col(row, "SpanCount") or 1)
                 has_error = bool(_col(row, "HasError") or False)
-                traces.append(Trace(
-                    trace_id=op_id[:16] if op_id else op_name[:16],
-                    service=service,
-                    operation_name=op_name,
-                    start_time=datetime.now(timezone.utc),
-                    duration_ms=dur_ms,
-                    span_count=span_count,
-                    status="error" if has_error else "ok",
-                ))
+                traces.append(
+                    Trace(
+                        trace_id=op_id[:16] if op_id else op_name[:16],
+                        service=service,
+                        operation_name=op_name,
+                        start_time=datetime.now(timezone.utc),
+                        duration_ms=dur_ms,
+                        span_count=span_count,
+                        status="error" if has_error else "ok",
+                    )
+                )
             except Exception:
                 continue
         return traces
@@ -302,7 +330,9 @@ AppRequests
                 err_logs = await self.query_logs(
                     service,
                     f"AppExceptions | where AppRoleName == '{service}'",
-                    start, end, limit=200,
+                    start,
+                    end,
+                    limit=200,
                 )
                 representative, summary = self._summarize_logs(err_logs, window_minutes)
                 anomalies.append(
