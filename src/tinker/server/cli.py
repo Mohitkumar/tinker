@@ -84,7 +84,7 @@ def init_server() -> None:
     """[bold cyan]First-time setup wizard.[/bold cyan]
 
     Auto-detects cloud environment, configures Slack / notifiers, generates
-    an API key, and writes [bold]~/.tinker/config.toml[/bold] + [bold]~/.tinker/.env[/bold].
+    an API key, and writes [bold]~/.tinkr/config.toml[/bold] + [bold]~/.tinkr/.env[/bold].
     """
     from tinker.interfaces.init_wizard import ServerWizard
     ServerWizard().run()

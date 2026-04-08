@@ -16,9 +16,9 @@ cd tinker
 docker build -t tinker:local .
 ```
 
-Create `~/.tinker/.env` with your config:
+Create `~/.tinkr/.env` with your config:
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 # LLM — required
 ANTHROPIC_API_KEY=sk-ant-...
 
@@ -42,8 +42,8 @@ Run:
 docker run -d \
   --name tinker \
   -p 8000:8000 \
-  --env-file ~/.tinker/.env \
-  -v ~/.tinker:/root/.tinker \
+  --env-file ~/.tinkr/.env \
+  -v ~/.tinkr:/root/.tinkr \
   tinker:local
 ```
 
@@ -120,7 +120,7 @@ spec:
 ```bash
 # Create secrets from your .env file
 kubectl create secret generic tinker-secrets \
-  --from-env-file ~/.tinker/.env \
+  --from-env-file ~/.tinkr/.env \
   -n observability
 
 kubectl apply -f k8s/tinker.yaml

@@ -39,7 +39,7 @@ All four are included in the Tinker Docker Compose stack.
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.default]
 backend        = "grafana"
 loki_url       = "env:GRAFANA_LOKI_URL"
@@ -139,7 +139,7 @@ docker run -d --name tinker -p 8000:8000 \
   -e TINKER_BACKEND=grafana \
   -e GRAFANA_LOKI_URL=http://loki:3100 \
   -e GRAFANA_PROMETHEUS_URL=http://prometheus:9090 \
-  -v ~/.tinker:/root/.tinker \
+  -v ~/.tinkr:/root/.tinkr \
   tinker:local
 ```
 

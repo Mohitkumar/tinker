@@ -77,7 +77,7 @@ The wizard walks you through:
 4. **Server API key** — for CLI authentication
 5. **Profiles** — your cloud backend, services, and notifiers
 
-It writes `~/.tinker/config.toml` and `~/.tinker/.env`.
+It writes `~/.tinkr/config.toml` and `~/.tinkr/.env`.
 
 ### Step 3 — Start the server
 

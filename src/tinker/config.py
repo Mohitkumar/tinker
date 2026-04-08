@@ -1,7 +1,7 @@
 """Environment-variable pass-through for secrets that cloud SDKs and LiteLLM
 read directly from os.environ.
 
-This is intentionally small. Everything else lives in ~/.tinker/config.toml.
+This is intentionally small. Everything else lives in ~/.tinkr/config.toml.
 
 What belongs here
 -----------------
@@ -24,7 +24,7 @@ from pathlib import Path
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_tinker_dir = Path.home() / ".tinker"
+_tinker_dir = Path.home() / ".tinkr"
 _tinker_dir.mkdir(parents=True, exist_ok=True)
 
 _USER_ENV = str(_tinker_dir / ".env")

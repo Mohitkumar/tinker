@@ -196,7 +196,7 @@ class InvestigateREPL:
         try:
             import readline as _rl
             import os as _os
-            _hist = _os.path.expanduser("~/.tinker/repl_history")
+            _hist = _os.path.expanduser("~/.tinkr/repl_history")
             try:
                 _rl.read_history_file(_hist)
             except FileNotFoundError:

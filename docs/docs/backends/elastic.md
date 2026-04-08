@@ -41,14 +41,14 @@ Or use a username/password for simpler setups.
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.elastic-prod]
 backend       = "elastic"
 url           = "env:ELASTIC_URL"
 index_pattern = "logs-*,filebeat-*"
 ```
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 ELASTIC_URL=https://elastic.acme.internal:9200
 ELASTIC_API_KEY=VnVhQ2ZHY0JDZGJrZXctATxxxxxxxxxxxxxxxx==
 ```

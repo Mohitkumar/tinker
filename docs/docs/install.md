@@ -92,8 +92,8 @@ docker build -t tinker:local .
 docker run -d \
   --name tinker \
   -p 8000:8000 \
-  --env-file ~/.tinker/.env \
-  -v ~/.tinker:/root/.tinker \
+  --env-file ~/.tinkr/.env \
+  -v ~/.tinkr:/root/.tinkr \
   tinker:local
 ```
 
@@ -118,15 +118,15 @@ The wizard walks through:
 
 ## File locations
 
-All per-user state lives in `~/.tinker/`:
+All per-user state lives in `~/.tinkr/`:
 
 | File | Written by | Purpose |
 |---|---|---|
-| `~/.tinker/config.toml` | `tinkr-server init` | Server structure — profiles, LLM, Slack, GitHub, auth |
-| `~/.tinker/.env` | `tinkr-server init` | Secrets — API keys, tokens. **Never commit this file** |
-| `~/.tinker/config` | `tinkr init` | CLI connection — server URL + API token |
-| `~/.tinker/tinker.db` | auto-created | SQLite — REPL sessions, watch state, alert rules |
-| `~/.tinker/repl_history` | auto-created | `tinkr investigate` command history |
+| `~/.tinkr/config.toml` | `tinkr-server init` | Server structure — profiles, LLM, Slack, GitHub, auth |
+| `~/.tinkr/.env` | `tinkr-server init` | Secrets — API keys, tokens. **Never commit this file** |
+| `~/.tinkr/config` | `tinkr init` | CLI connection — server URL + API token |
+| `~/.tinkr/tinker.db` | auto-created | SQLite — REPL sessions, watch state, alert rules |
+| `~/.tinkr/repl_history` | auto-created | `tinkr investigate` command history |
 
 ---
 
@@ -141,7 +141,7 @@ All per-user state lives in `~/.tinker/`:
 | `TINKER_API_TOKEN` | API token (CLI override) | — |
 | `TINKER_SERVER_PORT` | Bind port | `8000` |
 | `TINKER_SERVER_HOST` | Bind host | `0.0.0.0` |
-| `TINKER_DB_PATH` | SQLite path | `~/.tinker/tinker.db` |
+| `TINKER_DB_PATH` | SQLite path | `~/.tinkr/tinker.db` |
 
 See the [Configuration Reference](/configuration) for the full list.
 

@@ -69,12 +69,12 @@ Copy:
 
 `tinkr-server init` asks for these in Step 2. For manual setup:
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
 SLACK_SIGNING_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [slack]
 bot_token      = "env:SLACK_BOT_TOKEN"
 signing_secret = "env:SLACK_SIGNING_SECRET"
@@ -113,7 +113,7 @@ In each channel where you want alerts or commands to work:
 
 Configure Slack as a notifier in your profile so watches send alerts to channels:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.aws-prod.notifiers.default]
 type      = "slack"
 bot_token = "env:SLACK_BOT_TOKEN"
@@ -147,7 +147,7 @@ tinkr watch start payments-api --notifier default --destination "#sre-alerts"
 
 `/tinker-approve` requires the Slack user's email to be mapped to a role with `oncall` or `sre-lead`:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [auth]
 api_keys = [
   { hash = "<sha256>", subject = "alice@acme.com", roles = ["oncall"] }

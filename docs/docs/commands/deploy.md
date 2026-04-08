@@ -100,7 +100,7 @@ Deploy correlation — payments-api (last 7d)
 
 Tinker uses the **GitHub Commits API** to list commits for a service's configured repository path. The service-to-repo mapping is configured in your profile:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [github]
 token        = "env:GITHUB_TOKEN"
 default_repo = "acme/monorepo"

@@ -75,7 +75,7 @@ The backend uses the standard AWS credential chain (`boto3` / `botocore`):
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.aws-prod]
 backend          = "cloudwatch"
 region           = "us-east-1"

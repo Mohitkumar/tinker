@@ -116,7 +116,7 @@ tinker investigate payments-api
 tinker investigate payments-api --session sess-a3f2b1c4
 ```
 
-Sessions are stored in `~/.tinker/tinker.db` and persist between terminal sessions.
+Sessions are stored in `~/.tinkr/tinker.db` and persist between terminal sessions.
 
 ## Approval requirements
 

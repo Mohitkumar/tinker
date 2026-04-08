@@ -37,7 +37,7 @@ uv run pytest --collect-only   # should collect tests with no errors
 Set up a minimal `.env`:
 
 ```bash
-cat > ~/.tinker/.env <<EOF
+cat > ~/.tinkr/.env <<EOF
 ANTHROPIC_API_KEY=sk-ant-...
 TINKER_BACKEND=grafana
 GRAFANA_LOKI_URL=http://localhost:3100

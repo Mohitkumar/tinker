@@ -61,7 +61,7 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.gcp-prod]
 backend    = "gcp"
 project_id = "acme-prod-123456"

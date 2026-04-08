@@ -128,7 +128,7 @@ Tinker computes a SHA-256 hash of the current anomaly set. If the hash differs f
 
 ## Configuring notifiers
 
-Notifiers are configured per-profile in `~/.tinker/config.toml`:
+Notifiers are configured per-profile in `~/.tinkr/config.toml`:
 
 ```toml
 [profiles.aws-prod.notifiers.pagerduty]
@@ -152,7 +152,7 @@ See [Webhooks](../integrations/webhooks) and [Slack](../integrations/slack) for 
 
 ## Persistence
 
-Watches persist across server restarts. The watch state is stored in `~/.tinker/tinker.db` (SQLite). When the Tinker server starts, it resumes all watches that were `running` at shutdown.
+Watches persist across server restarts. The watch state is stored in `~/.tinkr/tinker.db` (SQLite). When the Tinker server starts, it resumes all watches that were `running` at shutdown.
 
 ## See also
 

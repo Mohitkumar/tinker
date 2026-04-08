@@ -3,13 +3,13 @@
 Resolution order for server URL:
   1. Explicit override passed to resolve()
   2. TINKER_SERVER_URL env var
-  3. url in ~/.tinker/config (TOML)
+  3. url in ~/.tinkr/config (TOML)
   4. Fallback: http://localhost:8000
 
 The API token is always read from the TINKER_API_TOKEN env var.
-~/.tinker/config stores the URL only — never secrets.
+~/.tinkr/config stores the URL only — never secrets.
 
-~/.tinker/config format
+~/.tinkr/config format
 -----------------------
 url = "https://tinker.internal"
 """
@@ -51,7 +51,7 @@ def resolve(url_override: str | None = None) -> ServerConfig:
 
 
 def _config_path() -> Path:
-    return Path.home() / ".tinker" / "config"
+    return Path.home() / ".tinkr" / "config"
 
 
 def _read_config() -> dict:
@@ -69,7 +69,7 @@ def _read_config() -> dict:
 
 
 def write_config(url: str, token: str | None = None) -> Path:
-    """Write server URL (and optionally token) to ~/.tinker/config."""
+    """Write server URL (and optionally token) to ~/.tinkr/config."""
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -5,12 +5,12 @@ title: Configuration Reference
 
 # Configuration Reference
 
-Tinker uses two configuration files, both located in `~/.tinker/`:
+Tinker uses two configuration files, both located in `~/.tinkr/`:
 
 | File | Purpose |
 |---|---|
-| `~/.tinker/config.toml` | Profiles, backends, notifiers, auth |
-| `~/.tinker/.env` | Secrets (API keys, tokens, URLs) |
+| `~/.tinkr/config.toml` | Profiles, backends, notifiers, auth |
+| `~/.tinkr/.env` | Secrets (API keys, tokens, URLs) |
 
 The `.env` file is never committed to source control. Values referenced as `"env:VAR_NAME"` in `config.toml` are substituted at load time.
 
@@ -127,7 +127,7 @@ prometheus_url = "env:OTEL_PROMETHEUS_URL"
 
 ## Full .env reference
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 # ── LLM ──────────────────────────────────────
 ANTHROPIC_API_KEY=sk-ant-...
 
@@ -190,7 +190,7 @@ DISCORD_OPS_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/xxxx
 For server-side configuration, Tinker reads variables in this order:
 
 1. Process environment (injected by cloud secrets manager at container start)
-2. `.env` file at `~/.tinker/.env`
+2. `.env` file at `~/.tinkr/.env`
 3. `config.toml` `env:` references (resolved from #1 and #2)
 
 ---

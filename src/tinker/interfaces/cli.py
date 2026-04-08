@@ -77,7 +77,7 @@ def init_cli() -> None:
     """[bold cyan]Connect this machine's CLI to a Tinker server.[/bold cyan]
 
     Asks for the server URL and API token, tests the connection,
-    and writes [bold]~/.tinker/config[/bold].
+    and writes [bold]~/.tinkr/config[/bold].
 
     To set up the server itself, run [bold]tinkr-server init[/bold] on the server machine.
     """
@@ -773,7 +773,7 @@ def _set_active_profile(name: str) -> None:
     """Overwrite the active_profile key in config.toml."""
     import re
     from pathlib import Path
-    toml_file = Path.home() / ".tinker" / "config.toml"
+    toml_file = Path.home() / ".tinkr" / "config.toml"
     if not toml_file.exists():
         console.print("[red]config.toml not found. Run [bold]tinker init server[/bold] first.[/red]")
         raise typer.Exit(1)

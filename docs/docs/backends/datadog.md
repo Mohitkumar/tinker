@@ -38,13 +38,13 @@ Store them in your cloud secrets manager (AWS Secrets Manager, GCP Secret Manage
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.datadog-prod]
 backend = "datadog"
 site    = "datadoghq.com"
 ```
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 DD_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 DD_APP_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```

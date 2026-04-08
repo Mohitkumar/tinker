@@ -154,7 +154,7 @@ Each backend returns real data from its provider.
 
 ### 4.5 Server-only CLI model ✅
 - [x] Removed `LocalClient` — `RemoteClient` is the only client
-- [x] `~/.tinker/config` stores server URL; `TINKER_API_TOKEN` env var stores token
+- [x] `~/.tinkr/config` stores server URL; `TINKER_API_TOKEN` env var stores token
 - [x] `get_client()` always returns `RemoteClient`
 - [x] `tinker server` on localhost = "local mode" without any special code path
 
@@ -182,7 +182,7 @@ Each backend returns real data from its provider.
   - [x] Server URL prompt (default: `http://localhost:8000`)
   - [x] API token prompt
   - [x] Health check test against server
-  - [x] `~/.tinker/config` write
+  - [x] `~/.tinkr/config` write
 
 ---
 
@@ -274,7 +274,7 @@ src/tinker/
 │   └── summarizer.py   LogSummarizer — deduplication + compact LLM context
 ├── client/
 │   ├── remote.py       RemoteClient — HTTP to Tinker server
-│   └── config.py       Reads ~/.tinker/config + TINKER_SERVER_URL
+│   └── config.py       Reads ~/.tinkr/config + TINKER_SERVER_URL
 ├── store/
 │   └── db.py           SQLite — sessions + watch state
 ├── code/               Git/GitHub integration, fix application

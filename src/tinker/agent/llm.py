@@ -45,7 +45,7 @@ litellm.set_verbose = False
 def _sync_llm_keys() -> None:
     """Push provider API keys from pydantic-settings into os.environ.
 
-    pydantic-settings reads ~/.tinker/.env into the settings object but does NOT
+    pydantic-settings reads ~/.tinkr/.env into the settings object but does NOT
     inject values into os.environ. LiteLLM reads keys from os.environ, so without
     this sync the keys are invisible to LiteLLM.
     """
@@ -77,12 +77,12 @@ def _init_langfuse() -> None:
     exports spans to Langfuse. LiteLLM's "otel" callback then picks that up
     automatically — no langfuse-specific LiteLLM integration needed.
 
-    Reads from ~/.tinker/.env:
+    Reads from ~/.tinkr/.env:
         LANGFUSE_PUBLIC_KEY=pk-lf-...
         LANGFUSE_SECRET_KEY=sk-lf-...
         LANGFUSE_BASE_URL=https://cloud.langfuse.com   # optional
 
-    Must be called after toml_config.get() so ~/.tinker/.env is in os.environ.
+    Must be called after toml_config.get() so ~/.tinkr/.env is in os.environ.
     """
     import os
 

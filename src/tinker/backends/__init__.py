@@ -2,7 +2,7 @@
 
 Backend selection
 -----------------
-The active backend is determined by the active profile in ~/.tinker/config.toml:
+The active backend is determined by the active profile in ~/.tinkr/config.toml:
 
     active_profile = "aws-prod"
 

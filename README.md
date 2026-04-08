@@ -65,7 +65,7 @@ uv tool install --editable .  # installs tinkr globally as editable
 ```bash
 git clone https://github.com/gettinker/tinkr
 docker build -t tinker:local .
-docker run -d -p 8000:8000 --env-file ~/.tinker/.env -v ~/.tinker:/root/.tinker tinker:local
+docker run -d -p 8000:8000 --env-file ~/.tinkr/.env -v ~/.tinkr:/root/.tinkr tinker:local
 ```
 
 ---
@@ -84,8 +84,8 @@ tinkr-server init
 #   Step 4 — Server API key (for CLI auth)
 #   Step 5 — Profiles: cloud backend + services + notifiers (loops for multi-cloud)
 #
-#   Writes: ~/.tinker/config.toml  (structure)
-#           ~/.tinker/.env         (secrets)
+#   Writes: ~/.tinkr/config.toml  (structure)
+#           ~/.tinkr/.env         (secrets)
 
 # 2. Start the server
 tinkr-server start
@@ -100,7 +100,7 @@ tinkr init
 # Tinker server URL [http://localhost:8000]: https://tinker.acme.internal
 # API token: <paste key from step 1>
 # ✓ Connected: Tinkr v0.1.0  backend=cloudwatch
-# ✓ Saved: ~/.tinker/config
+# ✓ Saved: ~/.tinkr/config
 
 # 4. Verify
 tinkr doctor
@@ -167,7 +167,7 @@ tinkr profile add                   # add a new profile interactively
 Active: aws-prod — change with tinkr profile use <name>
 ```
 
-`tinkr profile use` updates `active_profile` in `~/.tinker/config.toml` immediately. The server picks it up on the next restart (or `tinkr-server start --reload`).
+`tinkr profile use` updates `active_profile` in `~/.tinkr/config.toml` immediately. The server picks it up on the next restart (or `tinkr-server start --reload`).
 
 ---
 
@@ -267,7 +267,7 @@ Example: 1000 raw error logs → 2 unique patterns + 1 stack trace → ~1000-tok
 | Setting | How to configure |
 |---|---|
 | GitHub repo | Configure in `[profiles.*].services.<name>.repo` or `[github].default_repo` |
-| GitHub token | `GITHUB_TOKEN` in `~/.tinker/.env` |
+| GitHub token | `GITHUB_TOKEN` in `~/.tinkr/.env` |
 
 ---
 
@@ -483,7 +483,7 @@ tinkr watch delete watch-abc123
 1. `tinkr watch start` calls `POST /api/v1/watches` on the server
 2. The server starts an asyncio task that polls `detect_anomalies` every `interval` seconds
 3. A SHA-256 hash of the current anomaly set is compared to the previous tick — the notifier is only called when the set changes
-4. Watch state is persisted in SQLite (`~/.tinker/tinker.db`) and resumed on server restart
+4. Watch state is persisted in SQLite (`~/.tinkr/tinker.db`) and resumed on server restart
 5. `tinkr watch stop` marks the record stopped; `tinkr watch delete` removes it
 
 **Alert message format (Slack):**
@@ -688,12 +688,12 @@ Required scopes: `Contents` read, `Commits` read, `Pull requests` write, `Metada
 `tinkr-server init` asks for this interactively (Step 3). For manual setup:
 
 ```bash
-# ~/.tinker/.env
+# ~/.tinkr/.env
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 
 ```toml
-# ~/.tinker/config.toml
+# ~/.tinkr/config.toml
 [github]
 token = "env:GITHUB_TOKEN"
 default_repo = "acme/monorepo"
@@ -722,7 +722,7 @@ Native support is not yet built in. Workaround: mirror repos to GitHub and point
 A profile bundles a backend with its services and notifiers. Use one per cloud account.
 
 ```toml
-# ~/.tinker/config.toml
+# ~/.tinkr/config.toml
 
 active_profile = "aws-prod"   # which profile is currently active
 
@@ -839,13 +839,13 @@ tinkr watch start payments-api --notifier default --destination "#payments-oncal
 `tinkr-server init` asks for these interactively (Step 2). For manual setup:
 
 ```bash
-# ~/.tinker/.env
+# ~/.tinkr/.env
 SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
 SLACK_SIGNING_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ```toml
-# ~/.tinker/config.toml
+# ~/.tinkr/config.toml
 [slack]
 bot_token      = "env:SLACK_BOT_TOKEN"
 signing_secret = "env:SLACK_SIGNING_SECRET"
@@ -874,12 +874,12 @@ alerts_channel = "#incidents"
 
 | File | Purpose |
 |---|---|
-| `~/.tinker/config.toml` | Structure — profiles, LLM, Slack, GitHub, auth, server settings |
-| `~/.tinker/.env` | Secrets — API keys, tokens. Never commit this file |
+| `~/.tinkr/config.toml` | Structure — profiles, LLM, Slack, GitHub, auth, server settings |
+| `~/.tinkr/.env` | Secrets — API keys, tokens. Never commit this file |
 
 Secrets are referenced in `config.toml` as `"env:VAR_NAME"` and resolved at server startup.
 
-### Full `~/.tinker/config.toml` structure
+### Full `~/.tinkr/config.toml` structure
 
 ```toml
 # Which profile the server uses
@@ -933,7 +933,7 @@ api_key        = "env:GRAFANA_API_KEY"
   webhook_url = "env:DISCORD_DEV_WEBHOOK_URL"
 ```
 
-### `~/.tinker/.env` (secrets only)
+### `~/.tinkr/.env` (secrets only)
 
 ```bash
 # DO NOT COMMIT
@@ -948,12 +948,12 @@ DISCORD_DEV_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
 | File / Variable | Description |
 |---|---|
-| `~/.tinker/config` | Server URL + API token — written by `tinkr init` |
-| `~/.tinker/.env` | Server secrets — written by `tinkr-server init`, auto-loaded by `tinkr-server` |
-| `~/.tinker/config.toml` | Server structure config — written by `tinkr-server init` |
-| `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state, alert rules |
-| `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinker/config`) |
-| `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinker/config`) |
+| `~/.tinkr/config` | Server URL + API token — written by `tinkr init` |
+| `~/.tinkr/.env` | Server secrets — written by `tinkr-server init`, auto-loaded by `tinkr-server` |
+| `~/.tinkr/config.toml` | Server structure config — written by `tinkr-server init` |
+| `~/.tinkr/tinker.db` | SQLite — REPL sessions, watch state, alert rules |
+| `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinkr/config`) |
+| `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinkr/config`) |
 
 ### Fallback: `.env`-only mode
 
@@ -1030,14 +1030,14 @@ uv run ruff check src/
 uv run mypy src/
 ```
 
-All per-user state lives in `~/.tinker/`:
+All per-user state lives in `~/.tinkr/`:
 
 | File | Written by | Used by |
 |---|---|---|
-| `~/.tinker/config.toml` | `tinkr-server init` | `tinkr-server` (structure + routing) |
-| `~/.tinker/.env` | `tinkr-server init` | `tinkr-server` (secrets) |
-| `~/.tinker/config` | `tinkr init` | all CLI commands |
-| `~/.tinker/tinker.db` | auto-created | `tinkr investigate`, `tinkr watch`, `tinkr alert` |
+| `~/.tinkr/config.toml` | `tinkr-server init` | `tinkr-server` (structure + routing) |
+| `~/.tinkr/.env` | `tinkr-server init` | `tinkr-server` (secrets) |
+| `~/.tinkr/config` | `tinkr init` | all CLI commands |
+| `~/.tinkr/tinker.db` | auto-created | `tinkr investigate`, `tinkr watch`, `tinkr alert` |
 
 ---
 

@@ -137,7 +137,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.gcp-prod]
 backend    = "gcp"
 project_id = "my-project-prod"

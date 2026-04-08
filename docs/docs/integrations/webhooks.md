@@ -13,7 +13,7 @@ Tinker can send anomaly alerts to any HTTP endpoint — PagerDuty, Opsgenie, cus
 
 Configure a webhook notifier in your profile:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.aws-prod.notifiers.pagerduty]
 type                 = "webhook"
 url                  = "env:PAGERDUTY_WEBHOOK_URL"
@@ -29,7 +29,7 @@ type = "webhook"
 url  = "https://hooks.internal.acme.com/tinker-alerts"
 ```
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 PAGERDUTY_WEBHOOK_URL=https://events.pagerduty.com/integration/XXXX/enqueue
 PAGERDUTY_API_KEY=Token token=XXXX
 OPSGENIE_WEBHOOK_URL=https://api.opsgenie.com/v2/alerts
@@ -76,13 +76,13 @@ The webhook fires only when the anomaly set **changes** (not on every poll tick)
 
 ## Discord notifier
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.aws-prod.notifiers.discord-ops]
 type        = "discord"
 webhook_url = "env:DISCORD_OPS_WEBHOOK_URL"
 ```
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 DISCORD_OPS_WEBHOOK_URL=https://discord.com/api/webhooks/1234567890/xxxx
 ```
 

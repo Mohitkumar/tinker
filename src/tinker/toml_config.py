@@ -2,8 +2,8 @@
 
 Layout
 ------
-  ~/.tinker/config.toml   — structure (profiles, services, notifiers, server settings)
-  ~/.tinker/.env          — secrets (API keys, tokens) — never committed
+  ~/.tinkr/config.toml   — structure (profiles, services, notifiers, server settings)
+  ~/.tinkr/.env          — secrets (API keys, tokens) — never committed
 
 Secret references
 -----------------
@@ -12,7 +12,7 @@ environment at load time:
 
     api_key = "env:GRAFANA_API_KEY"   →  os.environ["GRAFANA_API_KEY"]
 
-~/.tinker/.env is automatically loaded into os.environ before resolution so
+~/.tinkr/.env is automatically loaded into os.environ before resolution so
 secrets written by ``tinker init server`` are always available.
 """
 
@@ -27,7 +27,7 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-_CONFIG_PATH = Path.home() / ".tinker" / "config.toml"
+_CONFIG_PATH = Path.home() / ".tinkr" / "config.toml"
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -162,13 +162,13 @@ def _resolve_dict(d: dict) -> dict:
 # ── Loader ────────────────────────────────────────────────────────────────────
 
 def _load_env_file_into_environ() -> None:
-    """Load ~/.tinker/.env into os.environ so env: references resolve correctly.
+    """Load ~/.tinkr/.env into os.environ so env: references resolve correctly.
 
     pydantic-settings reads the file into its own settings object but does NOT
     inject values into os.environ. toml_config._resolve() reads os.environ, so
     we need to bridge the gap ourselves. Existing env vars are never overwritten.
     """
-    env_path = Path.home() / ".tinker" / ".env"
+    env_path = Path.home() / ".tinkr" / ".env"
     if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():

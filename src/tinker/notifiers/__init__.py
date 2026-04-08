@@ -1,7 +1,7 @@
 """Tinker alert notifiers.
 
 Notifiers deliver watch alerts to messaging platforms.
-Configure them in ``[notifiers.*]`` in ``~/.tinker/config.toml``.
+Configure them in ``[notifiers.*]`` in ``~/.tinkr/config.toml``.
 
 Example config
 --------------

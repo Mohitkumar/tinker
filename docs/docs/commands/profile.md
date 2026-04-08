@@ -85,7 +85,7 @@ Active profile: aws-prod
 
 ## Profile configuration
 
-Profiles are defined in `~/.tinker/config.toml`:
+Profiles are defined in `~/.tinkr/config.toml`:
 
 ```toml
 # Default profile — used when no --profile is given

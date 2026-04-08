@@ -43,7 +43,7 @@ OTel Collector
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.otel-prod]
 backend        = "otel"
 opensearch_url = "env:OTEL_OPENSEARCH_URL"

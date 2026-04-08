@@ -42,11 +42,11 @@ Copy the generated token (`github_pat_...`).
 
 `tinkr-server init` asks for this in Step 3. For manual setup:
 
-```bash title="~/.tinker/.env"
+```bash title="~/.tinkr/.env"
 GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxx
 ```
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [github]
 token        = "env:GITHUB_TOKEN"
 default_repo = "acme/monorepo"
@@ -56,7 +56,7 @@ default_repo = "acme/monorepo"
 
 If different services live in different repos, configure them per service inside their profile:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.aws-prod.services.payments-api]
 repo          = "acme/payments"
 resource_type = "ecs"
@@ -95,7 +95,7 @@ When you type `approve` in the `tinkr investigate` REPL:
 
 The `approve` action requires the `oncall` or `sre-lead` role in your API key config:
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [auth]
 api_keys = [
   { hash = "<sha256>", subject = "alice", roles = ["oncall"] }

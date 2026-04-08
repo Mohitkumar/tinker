@@ -66,7 +66,7 @@ az role assignment create \
 
 ## Profile configuration
 
-```toml title="~/.tinker/config.toml"
+```toml title="~/.tinkr/config.toml"
 [profiles.azure-prod]
 backend         = "azure"
 workspace_id    = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
