@@ -49,13 +49,7 @@ dependencies = [
 
 [project.scripts]
 tinkr                = "tinker.interfaces.cli:app"
-tinkr-server         = "tinker.server.app:main"
-tinkr-cloudwatch-mcp = "tinker.mcp_servers.cloudwatch_server:main"
-tinkr-elastic-mcp    = "tinker.mcp_servers.elastic_server:main"
-tinkr-github-mcp     = "tinker.mcp_servers.github_server:main"
-tinkr-azure-mcp      = "tinker.mcp_servers.azure_server:main"
-tinkr-grafana-mcp    = "tinker.mcp_servers.grafana_server:main"
-tinkr-datadog-mcp    = "tinker.mcp_servers.datadog_server:main"
+tinkr-server         = "tinker.server.cli:main"
 
 
 [dependency-groups]
@@ -71,19 +65,6 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tinker"]
-
-# ── Install ────────────────────────────────────────────────────────────────────
-# Global install (recommended — tinker available everywhere, no venv activation):
-#   uv tool install .                  # from source
-#   uv tool install tinker-agent       # from PyPI
-#
-# Development install (editable, inside a venv):
-#   uv sync                            # creates .venv + installs all deps
-#   uv run tinker                      # runs via the venv
-#   uv tool install --editable .       # or install globally as editable
-#
-# After global install the `tinker` binary is in $(uv tool dir)/bin
-# which uv automatically adds to PATH. Verify with: which tinker
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

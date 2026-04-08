@@ -7,32 +7,86 @@ title: Installation
 
 ## Requirements
 
-- Python **3.12** or higher (for building from source)
-- Docker (for running as a container)
 - An [Anthropic API key](https://console.anthropic.com/) (`ANTHROPIC_API_KEY`)
 - Access to a cloud observability backend — CloudWatch, GCP, Azure, Grafana/Loki, Datadog, Elastic, or OTel
 
 ---
 
-## Option 1 — Build from source and run with Docker (recommended)
+## Install the CLI
+
+Choose any of the three package managers:
+
+```bash
+# uv (recommended)
+uv tool install tinkr
+
+# pipx
+pipx install tinkr
+
+# pip
+pip install tinkr
+```
+
+Verify:
+
+```bash
+tinkr --version
+tinkr --help
+```
+
+:::tip macOS / externally managed Python
+If `pip install` fails with "externally managed environment", use `uv tool install` or `pipx install` instead — both create an isolated environment automatically with no `sudo` or virtualenv needed.
+:::
+
+---
+
+## Run the server
+
+The CLI is a thin client — it talks to the Tinker server. Run the server on any machine that has cloud access (EC2 with an IAM role, Cloud Run with Workload Identity, your laptop, etc.):
+
+```bash
+tinkr-server init    # first-time setup wizard
+tinkr-server         # start on :8000
+```
+
+Then connect the CLI from any machine:
+
+```bash
+tinkr init
+# Tinker server URL [http://localhost:8000]: https://tinker.acme.internal
+# API token: <paste key from wizard>
+```
+
+---
+
+## Build from source
+
+If you want to modify the code or run the latest unreleased version:
+
+```bash
+git clone https://github.com/gettinker/tinker
+cd tinker
+
+# Install all deps (including dev deps)
+uv sync
+
+# Run the server directly
+TINKER_BACKEND=cloudwatch uv run tinkr-server
+
+# Or install the CLI globally as editable
+uv tool install --editable .
+tinkr --version
+```
+
+---
+
+## Run with Docker
 
 ```bash
 git clone https://github.com/gettinker/tinker
 cd tinker
 docker build -t tinker:local .
-```
 
-Create `~/.tinker/.env`:
-
-```bash title="~/.tinker/.env"
-ANTHROPIC_API_KEY=sk-ant-...
-TINKER_BACKEND=cloudwatch   # or gcp, azure, grafana, datadog, elastic, otel
-TINKER_API_KEYS='[{"hash":"<sha256>","subject":"alice","roles":["oncall"]}]'
-```
-
-Run:
-
-```bash
 docker run -d \
   --name tinker \
   -p 8000:8000 \
@@ -41,47 +95,14 @@ docker run -d \
   tinker:local
 ```
 
----
-
-## Option 2 — Run directly from source
-
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
-
-```bash
-git clone https://github.com/gettinker/tinker
-cd tinker
-
-# Install dependencies
-uv sync
-
-# Run the server
-TINKER_BACKEND=cloudwatch uv run tinkr-server
-
-# Or install the CLI globally (available in PATH everywhere)
-uv tool install --editable .
-tinkr --version
-```
-
----
-
-## Verify
-
-```bash
-curl http://localhost:8000/health
-# {"status":"ok","version":"0.1.0"}
-
-tinkr --version
-tinkr --help
-```
+See [Docker / Self-hosted](./deployment/docker.md) for Kubernetes manifests and full `.env` reference.
 
 ---
 
 ## First-time server setup
 
-Run the setup wizard to generate `~/.tinker/config.toml` and `~/.tinker/.env`:
-
 ```bash
-tinkr init server
+tinkr-server init
 ```
 
 The wizard walks through:
@@ -91,14 +112,6 @@ The wizard walks through:
 4. Server API key (for CLI auth)
 5. Cloud backend profile
 
-Then connect the CLI:
-
-```bash
-tinkr init cli
-# Tinker server URL [http://localhost:8000]: https://tinker.acme.internal
-# API token: <paste key from wizard>
-```
-
 ---
 
 ## File locations
@@ -107,9 +120,9 @@ All per-user state lives in `~/.tinker/`:
 
 | File | Written by | Purpose |
 |---|---|---|
-| `~/.tinker/config.toml` | `tinkr init server` | Server structure — profiles, LLM, Slack, GitHub, auth |
-| `~/.tinker/.env` | `tinkr init server` | Secrets — API keys, tokens. **Never commit this file** |
-| `~/.tinker/config` | `tinkr init cli` | CLI connection — server URL + API token |
+| `~/.tinker/config.toml` | `tinkr-server init` | Server structure — profiles, LLM, Slack, GitHub, auth |
+| `~/.tinker/.env` | `tinkr-server init` | Secrets — API keys, tokens. **Never commit this file** |
+| `~/.tinker/config` | `tinkr init` | CLI connection — server URL + API token |
 | `~/.tinker/tinker.db` | auto-created | SQLite — REPL sessions, watch state, alert rules |
 | `~/.tinker/repl_history` | auto-created | `tinkr investigate` command history |
 
@@ -142,4 +155,4 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 python -c "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())" <raw-key>
 ```
 
-`tinkr init server` does this automatically.
+`tinkr-server init` does this automatically.

@@ -70,84 +70,16 @@ def _get_client():
         raise typer.Exit(1)
 
 
-# ── Server command ────────────────────────────────────────────────────────────
-
-@app.command()
-def server(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
-    port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
-    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev only)"),
-    log_level: str = typer.Option("info", "--log-level", help="Uvicorn log level"),
-    debug: bool = typer.Option(False, "--debug", help="Enable debug logging — shows every query fired to observability backends"),
-) -> None:
-    """[bold cyan]Start the Tinker server.[/bold cyan]
-
-    Run this on any machine that has access to your cloud observability stack.
-    The server exposes a REST API that the CLI connects to.
-
-    Examples:
-
-      tinker server
-      tinker server --port 9000
-      tinker server --host 127.0.0.1 --reload   # dev mode
-      tinker server --debug                      # show backend queries
-    """
-    import logging
-    import uvicorn
-
-    if debug:
-        log_level = "debug"
-        logging.basicConfig(level=logging.DEBUG)
-        for _noisy in (
-            "httpcore", "httpx", "hpack", "h11", "h2",
-            "botocore", "boto3", "urllib3", "asyncio",
-            "google.auth", "google.api_core",
-            "azure.core", "azure.identity",
-        ):
-            logging.getLogger(_noisy).setLevel(logging.WARNING)
-
-    console.print(Panel.fit(
-        f"[bold cyan]Tinker Server[/bold cyan]  [dim]v{__version__}[/dim]\n"
-        f"Listening on [bold]http://{host}:{port}[/bold]\n"
-        f"Docs: [link]http://{host}:{port}/docs[/link]"
-        + ("\n[yellow]debug mode — backend queries will be logged[/yellow]" if debug else ""),
-        border_style="cyan",
-    ))
-
-    uvicorn.run(
-        "tinker.server.app:create_app",
-        factory=True,
-        host=host,
-        port=port,
-        reload=reload,
-        log_level=log_level,
-    )
-
-
 # ── Setup commands ────────────────────────────────────────────────────────────
 
-init_app = typer.Typer(help="Interactive setup wizards.")
-app.add_typer(init_app, name="init")
-
-
-@init_app.command("server")
-def init_server() -> None:
-    """[bold cyan]Set up a Tinker server on this machine.[/bold cyan]
-
-    Auto-detects cloud environment, checks observability permissions,
-    configures Slack / notifiers, generates API key, and writes
-    [bold]~/.tinker/config.toml[/bold] + [bold]~/.tinker/.env[/bold].
-    """
-    from tinker.interfaces.init_wizard import ServerWizard
-    ServerWizard().run()
-
-
-@init_app.command("cli")
+@app.command("init")
 def init_cli() -> None:
     """[bold cyan]Connect this machine's CLI to a Tinker server.[/bold cyan]
 
     Asks for the server URL and API token, tests the connection,
     and writes [bold]~/.tinker/config[/bold].
+
+    To set up the server itself, run [bold]tinkr-server init[/bold] on the server machine.
     """
     from tinker.interfaces.init_wizard import CLIWizard
     CLIWizard().run()
@@ -176,8 +108,8 @@ async def _doctor() -> None:
         console.print()
         console.print(
             "[red]Cannot reach Tinker server.[/red]\n"
-            "[dim]Run [bold]tinker server[/bold] on the target machine, "
-            "then [bold]tinker init cli[/bold] to point this CLI at it.[/dim]"
+            "[dim]Run [bold]tinkr-server[/bold] on the server machine, "
+            "then [bold]tinkr init[/bold] to point this CLI at it.[/dim]"
         )
         raise typer.Exit(1)
 

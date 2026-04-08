@@ -67,7 +67,7 @@ Copy:
 
 ### 6. Add secrets to server config
 
-`tinkr init server` asks for these in Step 2. For manual setup:
+`tinkr-server init` asks for these in Step 2. For manual setup:
 
 ```bash title="~/.tinker/.env"
 SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx

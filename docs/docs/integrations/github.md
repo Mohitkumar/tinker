@@ -40,7 +40,7 @@ Copy the generated token (`github_pat_...`).
 
 ### 2. Add to server config
 
-`tinkr init server` asks for this in Step 3. For manual setup:
+`tinkr-server init` asks for this in Step 3. For manual setup:
 
 ```bash title="~/.tinker/.env"
 GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxx

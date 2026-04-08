@@ -10,7 +10,7 @@ Open-source AI-powered observability and incident response agent. Connects to yo
 ┌──────────────────────────────────────────────────────────────────┐
 │  Tinker Server  (runs anywhere with cloud access)                │
 │                                                                  │
-│  tinkr server  ──► FastAPI on :8000                             │
+│  tinkr-server  ──► FastAPI on :8000                             │
 │                                                                  │
 │  POST /api/v1/rca        full AI root-cause analysis (SSE)       │
 │  POST /api/v1/anomalies  anomaly detection                       │
@@ -39,33 +39,29 @@ The server is the single point of credential trust. Cloud credentials (IAM role,
 
 ## Install
 
-### Docker (recommended)
-
 ```bash
-git clone https://github.com/gettinker/tinker
-cd tinker
-docker build -t tinker:local .
+# uv (recommended)
+uv tool install tinkr
 
-docker run -d \
-  --name tinker \
-  -p 8000:8000 \
-  --env-file ~/.tinker/.env \
-  -v ~/.tinker:/root/.tinker \
-  tinker:local
+# pipx
+pipx install tinkr
+
+# pip
+pip install tinkr
 ```
 
-### Build from source
+> **macOS / externally managed Python:** use `uv tool install` or `pipx install` — no `sudo` or virtualenv activation needed.
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+### Build from source
 
 ```bash
 git clone https://github.com/gettinker/tinker
 cd tinker
 uv sync                       # creates .venv + installs all deps
-uv tool install --editable .  # installs tinker globally as editable
+uv tool install --editable .  # installs tinkr globally as editable
 ```
 
-### Build Docker image locally
+### Docker
 
 ```bash
 git clone https://github.com/gettinker/tinker
@@ -82,7 +78,7 @@ docker run -d -p 8000:8000 --env-file ~/.tinker/.env -v ~/.tinker:/root/.tinker 
 
 ```bash
 # 1. Run the setup wizard
-tinkr init server
+tinkr-server init
 #   Wizard order:
 #   Step 1 — LLM provider + model + API key
 #   Step 2 — Slack bot (optional)
@@ -94,7 +90,7 @@ tinkr init server
 #           ~/.tinker/.env         (secrets)
 
 # 2. Start the server
-tinkr server
+tinkr-server start
 # Listening on http://0.0.0.0:8000
 ```
 
@@ -102,7 +98,7 @@ tinkr server
 
 ```bash
 # 3. Connect the CLI to the server
-tinkr init cli
+tinkr init
 # Tinker server URL [http://localhost:8000]: https://tinker.acme.internal
 # API token: <paste key from step 1>
 # ✓ Connected: Tinker v0.1.0  backend=cloudwatch
@@ -121,13 +117,13 @@ All observability commands take a **service name** as the first argument — the
 ### Server management
 
 ```bash
-tinkr server                        # start on :8000
-tinkr server --port 9000            # custom port
-tinkr server --host 127.0.0.1       # bind to localhost only
-tinkr server --reload               # dev mode — hot reload
+tinkr-server                        # start on :8000
+tinkr-server start --port 9000            # custom port
+tinkr-server start --host 127.0.0.1       # bind to localhost only
+tinkr-server start --reload               # dev mode — hot reload
 
-tinkr init server                   # first-time setup wizard
-tinkr init cli                      # connect CLI to a running server
+tinkr-server init                   # first-time setup wizard
+tinkr init                      # connect CLI to a running server
 
 tinkr doctor                        # verify server connection and backend
 ```
@@ -173,7 +169,7 @@ tinkr profile add                   # add a new profile interactively
 Active: aws-prod — change with tinkr profile use <name>
 ```
 
-`tinkr profile use` updates `active_profile` in `~/.tinker/config.toml` immediately. The server picks it up on the next restart (or `tinkr server --reload`).
+`tinkr profile use` updates `active_profile` in `~/.tinker/config.toml` immediately. The server picks it up on the next restart (or `tinkr-server start --reload`).
 
 ---
 
@@ -592,16 +588,16 @@ Set via `[llm]` in `config.toml` (wizard sets this in Step 1).
 
 ## Deployment
 
-The simplest deployment is `pip install tinkr && tinkr server` on any machine that has cloud access — an EC2 instance with an IAM role, a Cloud Run instance with a Workload Identity, or your laptop.
+The simplest deployment is `uv tool install tinkr && tinkr-server` on any machine that has cloud access — an EC2 instance with an IAM role, a Cloud Run instance with a Workload Identity, or your laptop.
 
 ### AWS (EC2 / ECS)
 
 ```bash
 # 1. Launch EC2 with an IAM role attached (see permissions below)
 # 2. SSH in and:
-pip install tinkr
-tinkr init server      # detects AWS automatically, verifies CloudWatch access
-tinkr server           # or: nohup tinkr server &
+uv tool install tinkr
+tinkr-server init      # detects AWS automatically, verifies CloudWatch access
+tinkr-server           # or: nohup tinkr-server start start &
 ```
 
 **Required IAM permissions:**
@@ -650,7 +646,7 @@ docker compose -f deploy/docker-compose.yml up -d
 ### Managing API keys
 
 ```bash
-# Generate (tinkr init server does this automatically)
+# Generate (tinkr-server init does this automatically)
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 # Hash it — store the hash in config.toml [auth], give the raw key to CLI users
@@ -691,7 +687,7 @@ Required scopes: `Contents` read, `Commits` read, `Pull requests` write, `Metada
 
 ### 2. Add to server config
 
-`tinkr init server` asks for this interactively (Step 3). For manual setup:
+`tinkr-server init` asks for this interactively (Step 3). For manual setup:
 
 ```bash
 # ~/.tinker/.env
@@ -842,7 +838,7 @@ tinkr watch start payments-api --notifier default --destination "#payments-oncal
 
 ### 2. Add to server config
 
-`tinkr init server` asks for these interactively (Step 2). For manual setup:
+`tinkr-server init` asks for these interactively (Step 2). For manual setup:
 
 ```bash
 # ~/.tinker/.env
@@ -876,7 +872,7 @@ alerts_channel = "#incidents"
 
 ## Configuration reference
 
-`tinkr init server` writes all of this automatically.
+`tinkr-server init` writes all of this automatically.
 
 | File | Purpose |
 |---|---|
@@ -954,9 +950,9 @@ DISCORD_DEV_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
 | File / Variable | Description |
 |---|---|
-| `~/.tinker/config` | Server URL + API token — written by `tinkr init cli` |
-| `~/.tinker/.env` | Server secrets — written by `tinkr init server`, auto-loaded by `tinkr server` |
-| `~/.tinker/config.toml` | Server structure config — written by `tinkr init server` |
+| `~/.tinker/config` | Server URL + API token — written by `tinkr init` |
+| `~/.tinker/.env` | Server secrets — written by `tinkr-server init`, auto-loaded by `tinkr-server` |
+| `~/.tinker/config.toml` | Server structure config — written by `tinkr-server init` |
 | `~/.tinker/tinker.db` | SQLite — REPL sessions, watch state, alert rules |
 | `TINKER_SERVER_URL` | Override server URL (env var takes priority over `~/.tinker/config`) |
 | `TINKER_API_TOKEN` | Override API token (env var takes priority over `~/.tinker/config`) |
@@ -999,13 +995,13 @@ The [`local-dev/`](local-dev/) directory runs a full observability stack locally
 cd local-dev && ./run.sh
 
 # 2. Configure and start Tinker server (separate terminal)
-tinkr init server
+tinkr-server init
 #   Step 1 → pick Anthropic, enter ANTHROPIC_API_KEY
 #   Step 5 → pick "Self-hosted (Grafana)", enter Loki/Prometheus URLs
-tinkr server
+tinkr-server start
 
 # 3. Point CLI at it
-tinkr init cli    # URL: http://localhost:8000
+tinkr init    # URL: http://localhost:8000
 
 # 4. Generate traffic and query
 cd local-dev && ./generate_traffic.sh incident
@@ -1023,7 +1019,7 @@ uv sync                          # create .venv, install all deps
 
 # Run via venv (no global install needed during dev)
 uv run tinkr --help
-uv run tinkr server
+uv run tinkr-server
 
 # Install globally as editable (changes in src/ take effect immediately)
 uv tool install --editable .
@@ -1040,9 +1036,9 @@ All per-user state lives in `~/.tinker/`:
 
 | File | Written by | Used by |
 |---|---|---|
-| `~/.tinker/config.toml` | `tinkr init server` | `tinkr server` (structure + routing) |
-| `~/.tinker/.env` | `tinkr init server` | `tinkr server` (secrets) |
-| `~/.tinker/config` | `tinkr init cli` | all CLI commands |
+| `~/.tinker/config.toml` | `tinkr-server init` | `tinkr-server` (structure + routing) |
+| `~/.tinker/.env` | `tinkr-server init` | `tinkr-server` (secrets) |
+| `~/.tinker/config` | `tinkr init` | all CLI commands |
 | `~/.tinker/tinker.db` | auto-created | `tinkr investigate`, `tinkr watch`, `tinkr alert` |
 
 ---

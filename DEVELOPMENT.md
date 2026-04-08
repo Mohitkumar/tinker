@@ -50,7 +50,7 @@ EOF
 Start the server in dev mode (auto-reloads on file change):
 
 ```bash
-uv run tinkr-server --reload
+uv run tinkr-server start --reload
 # or
 TINKER_BACKEND=grafana uv run python -m tinker.server.app
 ```
@@ -71,7 +71,7 @@ For CloudWatch:
 aws configure   # or aws sso login
 export TINKER_BACKEND=cloudwatch
 export AWS_REGION=us-east-1
-uv run tinkr-server --reload
+uv run tinkr-server start --reload
 ```
 
 For GCP:
@@ -79,7 +79,7 @@ For GCP:
 gcloud auth application-default login
 export TINKER_BACKEND=gcp
 export GCP_PROJECT_ID=your-project
-uv run tinkr-server --reload
+uv run tinkr-server start --reload
 ```
 
 ---
