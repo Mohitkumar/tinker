@@ -7,11 +7,11 @@ const config = {
   tagline: 'AI-powered observability and incident response agent',
   favicon: 'img/favicon.ico',
 
-  url: 'https://your-org.github.io',
-  baseUrl: '/tinker/',
+  url: 'https://gettinker.github.io',
+  baseUrl: '/',
 
-  organizationName: 'your-org',
-  projectName: 'tinker',
+  organizationName: 'gettinker',
+  projectName: 'gettinker.github.io',
   trailingSlash: false,
 
   onBrokenLinks: 'throw',
@@ -29,7 +29,7 @@ const config = {
       ({
         docs: {
           sidebarPath: require.resolve('./sidebars.js'),
-          editUrl: 'https://github.com/your-org/tinker/tree/main/docs/',
+          editUrl: 'https://github.com/gettinker/tinker/tree/main/docs/',
           routeBasePath: '/',
         },
         blog: false,
@@ -68,7 +68,7 @@ const config = {
             position: 'left',
           },
           {
-            href: 'https://github.com/your-org/tinker',
+            href: 'https://github.com/gettinker/tinker',
             label: 'GitHub',
             position: 'right',
           },
@@ -108,11 +108,11 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/your-org/tinker',
+                href: 'https://github.com/gettinker/tinker',
               },
               {
                 label: 'Issues',
-                href: 'https://github.com/your-org/tinker/issues',
+                href: 'https://github.com/gettinker/tinker/issues',
               },
             ],
           },
