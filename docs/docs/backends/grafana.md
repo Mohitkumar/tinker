@@ -128,31 +128,34 @@ exporter = OTLPSpanExporter(endpoint="http://tempo:4317", insecure=True)
 
 ---
 
-## Local development (Docker Compose)
+## Local development
 
-The fastest way to run a full Grafana stack locally:
+Run Tinker locally with Loki + Prometheus + Grafana using Docker:
 
 ```bash
-git clone https://github.com/your-org/tinker
-cd tinker
-cp .env.example .env
-# Add ANTHROPIC_API_KEY to .env
-
-docker compose -f deploy/docker-compose.yml up -d
+# Pull and run Tinker
+docker run -d --name tinker -p 8000:8000 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e TINKER_BACKEND=grafana \
+  -e GRAFANA_LOKI_URL=http://loki:3100 \
+  -e GRAFANA_PROMETHEUS_URL=http://prometheus:9090 \
+  -v ~/.tinker:/root/.tinker \
+  tinker:local
 ```
 
-Services:
-- Tinker: http://localhost:8000
-- Grafana UI: http://localhost:3000
-- Prometheus: http://localhost:9090
-- Loki: http://localhost:3100
+Build the image first:
 
 ```bash
-# Generate test traffic
-cd local-dev && ./generate_traffic.sh incident
+git clone https://github.com/gettinker/tinker && cd tinker && docker build -t tinker:local .
+```
 
-# Run Tinker
-tinker anomaly payments-api --since 5m
+Or run directly from source:
+
+```bash
+git clone https://github.com/gettinker/tinker
+cd tinker
+uv sync
+TINKER_BACKEND=grafana uv run tinker-server
 ```
 
 ---

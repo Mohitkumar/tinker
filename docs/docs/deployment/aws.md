@@ -119,7 +119,7 @@ journalctl -u tinker -f
   "containerDefinitions": [
     {
       "name": "tinker",
-      "image": "ghcr.io/your-org/tinker:latest",
+      "image": "<your-ecr-account>.dkr.ecr.us-east-1.amazonaws.com/tinker:latest",
       "portMappings": [{ "containerPort": 8000 }],
       "environment": [
         { "name": "TINKER_BACKEND", "value": "cloudwatch" },

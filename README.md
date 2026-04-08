@@ -39,23 +39,40 @@ The server is the single point of credential trust. Cloud credentials (IAM role,
 
 ## Install
 
-```bash
-# Install globally — tinker available in your PATH everywhere, no venv needed
-uv tool install tinker-agent
+### Docker (recommended)
 
-# Or with pip
-pip install --user tinker-agent
+```bash
+git clone https://github.com/gettinker/tinker
+cd tinker
+docker build -t tinker:local .
+
+docker run -d \
+  --name tinker \
+  -p 8000:8000 \
+  --env-file ~/.tinker/.env \
+  -v ~/.tinker:/root/.tinker \
+  tinker:local
 ```
 
-Requires Python 3.12+.
+### Build from source
 
-> **Development install** (editable, from source):
-> ```bash
-> git clone https://github.com/your-org/tinker
-> cd tinker
-> uv sync                       # creates .venv + installs all deps
-> uv tool install --editable .  # installs tinker globally as editable
-> ```
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+git clone https://github.com/gettinker/tinker
+cd tinker
+uv sync                       # creates .venv + installs all deps
+uv tool install --editable .  # installs tinker globally as editable
+```
+
+### Build Docker image locally
+
+```bash
+git clone https://github.com/gettinker/tinker
+cd tinker
+docker build -t tinker:local .
+docker run -d -p 8000:8000 --env-file ~/.tinker/.env -v ~/.tinker:/root/.tinker tinker:local
+```
 
 ---
 
@@ -1001,7 +1018,7 @@ tinker investigate payments-api
 ## Development
 
 ```bash
-git clone https://github.com/your-org/tinker && cd tinker
+git clone https://github.com/gettinker/tinker && cd tinker
 uv sync                          # create .venv, install all deps
 
 # Run via venv (no global install needed during dev)

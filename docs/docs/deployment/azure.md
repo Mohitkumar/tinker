@@ -56,7 +56,7 @@ az containerapp create \
   --name tinker \
   --resource-group my-rg \
   --environment my-env \
-  --image ghcr.io/your-org/tinker:latest \
+  --image <your-acr>.azurecr.io/tinker:latest \
   --user-assigned $IDENTITY_ID \
   --target-port 8000 \
   --ingress external \
@@ -94,7 +94,7 @@ spec:
       serviceAccountName: tinker-sa
       containers:
         - name: tinker
-          image: ghcr.io/your-org/tinker:latest
+          image: <your-acr>.azurecr.io/tinker:latest
           ports:
             - containerPort: 8000
           env:

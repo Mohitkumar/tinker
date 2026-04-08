@@ -74,7 +74,12 @@ The agent never imports a specific backend class — it always talks to the ABC.
 For local development, use the Grafana backend — no cloud credentials needed:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up
-# Starts Loki + Prometheus + Grafana + Tinker
-# TINKER_BACKEND=grafana
+git clone https://github.com/gettinker/tinker && cd tinker
+docker build -t tinker:local .
+docker run -d --name tinker -p 8000:8000 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e TINKER_BACKEND=grafana \
+  -e GRAFANA_LOKI_URL=http://loki:3100 \
+  -e GRAFANA_PROMETHEUS_URL=http://prometheus:9090 \
+  tinker:local
 ```
