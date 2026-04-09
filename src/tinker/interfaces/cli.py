@@ -55,11 +55,17 @@ def _run(coro) -> None:
             detail = str(exc)
         console.print(f"[red]Server error:[/red] {detail}")
         raise typer.Exit(1)
+    except httpx.TimeoutException:
+        console.print("[red]Timeout:[/red] server took too long to respond")
+        raise typer.Exit(1)
+    except httpx.RequestError as exc:
+        console.print(f"[red]Connection error:[/red] {exc or type(exc).__name__}")
+        raise typer.Exit(1)
     except ValueError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error ({type(exc).__name__}):[/red] {exc}")
         raise typer.Exit(1)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error ({type(exc).__name__}):[/red] {exc}")
         raise typer.Exit(1)
 
 
@@ -198,6 +204,7 @@ async def _logs(service, query, since, limit, resource, output) -> None:
 def tail(
     service: str = typer.Argument(..., help="Service name"),
     query: str = typer.Option("*", "--query", "-q", help="Filter query"),
+    lines: Optional[int] = typer.Option(None, "--lines", "-n", help="Show last N lines then stream live"),
     poll: float = typer.Option(2.0, "--poll", "-p", help="Poll interval in seconds"),
     resource: Optional[str] = typer.Option(None, "--resource", "-r", help="Resource type"),
     output: OutputFormat = typer.Option(OutputFormat.table, "--output", "-o", help="Output format"),
@@ -206,15 +213,16 @@ def tail(
 
     Examples:
 
-      tinker tail payments-api
-      tinker tail auth-service -q 'level:(ERROR OR WARN)'
-      tinker tail payments-api --output jsonlines | jq .message
+      tinkr tail payments-api
+      tinkr tail payments-api -n 20            # show last 20 lines then stream
+      tinkr tail auth-service -q 'level:(ERROR OR WARN)'
+      tinkr tail payments-api --output jsonlines | jq .message
     """
-    _run(_tail(service, query, poll, resource, output))
+    _run(_tail(service, query, lines, poll, resource, output))
 
 
-async def _tail(service, query, poll, resource, output) -> None:
-    from tinker.interfaces.handlers import stream_logs
+async def _tail(service, query, lines, poll, resource, output) -> None:
+    from tinker.interfaces.handlers import get_logs, stream_logs
     from tinker.interfaces.renderers import render_log_entry
 
     client = _get_client()
@@ -222,11 +230,28 @@ async def _tail(service, query, poll, resource, output) -> None:
         console.print(
             f"[bold green]Tailing[/bold green] [cyan]{service}[/cyan]"
             + (f" · [dim]{query}[/dim]" if query != "*" else "")
+            + (f" · [dim]last {lines} lines[/dim]" if lines else "")
             + "  [dim](Ctrl-C to stop)[/dim]"
         )
         console.print()
+
+    # If -n given, fetch last N lines first then stream only entries newer than those.
+    live_cursor: "datetime | None" = None
+    if lines:
+        from datetime import timezone as _tz
+        with console.status(f"Fetching last {lines} lines..."):
+            recent = await get_logs(client, service, query, "30m", lines, resource)
+        sorted_recent = sorted(recent, key=lambda e: e.timestamp)
+        for entry in sorted_recent:
+            render_log_entry(entry, output)
+        if sorted_recent:
+            from datetime import timedelta as _td
+            live_cursor = sorted_recent[-1].timestamp + _td(microseconds=1)
+        if output == OutputFormat.table:
+            console.print("[dim]--- live stream ---[/dim]")
+
     try:
-        async for entry in stream_logs(client, service, query, poll, resource):
+        async for entry in stream_logs(client, service, query, poll, resource, since=live_cursor):
             render_log_entry(entry, output)
     except KeyboardInterrupt:
         if output == OutputFormat.table:

@@ -81,22 +81,23 @@ def _metric_dict(p: MetricPoint) -> dict[str, Any]:
 
 
 def render_logs(entries: list[LogEntry], fmt: OutputFormat) -> None:
+    sorted_entries = sorted(entries, key=lambda e: e.timestamp)
     if fmt == OutputFormat.json:
-        print(_json.dumps([_log_dict(e) for e in entries], default=str))
+        print(_json.dumps([_log_dict(e) for e in sorted_entries], default=str))
         return
     if fmt == OutputFormat.jsonlines:
-        for e in entries:
+        for e in sorted_entries:
             print(_json.dumps(_log_dict(e), default=str))
         return
     # table
-    if not entries:
+    if not sorted_entries:
         console.print("[dim]No log entries found.[/dim]")
         return
     table = Table(show_header=True, header_style="bold magenta", show_lines=True)
     table.add_column("Timestamp", style="dim", width=20, no_wrap=True)
     table.add_column("Level", width=8, no_wrap=True)
     table.add_column("Message", overflow="fold")
-    for e in entries:
+    for e in sorted_entries:
         style = _LEVEL_STYLES.get(e.level.upper(), "white")
         table.add_row(
             e.timestamp.strftime("%Y-%m-%d %H:%M:%S"),

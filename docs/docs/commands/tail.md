@@ -5,24 +5,21 @@ title: tail
 
 # tinkr tail
 
-Stream live logs to your terminal. Polls the backend continuously and prints new lines as they arrive.
+Stream live logs to your terminal. Polls the backend continuously and prints new entries as they arrive.
 
 ```
 tinkr tail <service> [options]
 ```
 
-## Arguments
-
-| Argument | Description |
-|---|---|
-| `service` | Service name as configured in the active profile |
-
 ## Options
 
-| Flag | Default | Description |
-|---|---|---|
-| `--filter TEXT` | — | Filter expression (e.g. `level:ERROR`) |
-| `--interval INT` | `5` | Poll interval in seconds |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--query TEXT` | `-q` | `*` | Filter expression (e.g. `level:ERROR`) |
+| `--lines INT` | `-n` | — | Show last N lines first, then stream live |
+| `--poll FLOAT` | `-p` | `2.0` | Poll interval in seconds |
+| `--resource TEXT` | `-r` | — | Resource type: `ecs`, `lambda`, `cloudrun`, `gke`, etc. |
+| `--output FORMAT` | `-o` | `table` | Output format: `table`, `json`, `jsonlines` |
 
 ## Examples
 
@@ -30,33 +27,42 @@ tinkr tail <service> [options]
 # Stream all logs
 tinkr tail payments-api
 
-# Errors only
-tinkr tail payments-api --filter level:ERROR
+# Show last 20 lines, then stream live (like tail -n 20 -f)
+tinkr tail payments-api -n 20
 
-# Fast polling
-tinkr tail payments-api --interval 2
+# Errors only
+tinkr tail payments-api -q 'level:ERROR'
+
+# Last 50 error lines then stream
+tinkr tail payments-api -n 50 -q 'level:ERROR'
+
+# Pipe to jq
+tinkr tail payments-api --output jsonlines | jq .message
 ```
 
 ## Output
 
-Logs are printed as they arrive:
-
 ```
-[14:01:03] ERROR  Payment charge failed: card_declined
-[14:01:04] ERROR  Stripe API timeout after 30s
-[14:01:09] INFO   Health check OK
-[14:01:14] ERROR  Payment charge failed: insufficient_funds
+Tailing payments-api · last 20 lines  (Ctrl-C to stop)
+
+--- live stream ---
+14:01:03  ERROR     Payment charge failed: card_declined
+14:01:04  ERROR     Stripe API timeout after 30s
+14:01:09  INFO      Health check OK
+14:01:14  ERROR     Payment charge failed: insufficient_funds
 ```
 
-Press `Ctrl+C` to stop.
+When `-n` is used, the historical lines print first (oldest at the top), followed by a `--- live stream ---` divider, then live entries as they arrive.
+
+Press `Ctrl-C` to stop.
 
 ## Notes
 
-- `tinkr tail` is implemented as a polling loop, not a true WebSocket stream. Most observability backends do not expose a push-based log stream.
-- For high-volume services, use `--filter` to reduce noise.
-- The `--interval` floor is `1` second — lower values may overwhelm the backend.
+- `tinkr tail` polls the backend — it is not a WebSocket push stream. Most observability backends don't expose a native push API.
+- The `-n` lookback window is 30 minutes. For older history use [`tinkr logs --since`](logs).
+- For high-volume services, use `-q` to reduce noise before piping to other tools.
 
 ## See also
 
-- [`tinkr logs`](logs) — non-streaming log fetch
-- [`tinkr investigate`](investigate) — AI investigation starting from recent logs
+- [`tinkr logs`](logs) — fetch a fixed window of past logs (newest first)
+- [`tinkr investigate`](investigate) — AI-powered investigation starting from recent errors

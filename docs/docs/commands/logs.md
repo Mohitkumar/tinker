@@ -19,53 +19,63 @@ tinkr logs <service> [options]
 
 ## Options
 
-| Flag | Default | Description |
-|---|---|---|
-| `--since TEXT` | `1h` | How far back to look — e.g. `30m`, `2h`, `24h` |
-| `--filter TEXT` | — | LogQL / filter expression (e.g. `level:ERROR`, `"NullPointerException"`) |
-| `--limit INT` | `100` | Maximum number of log lines to return |
-| `--json` | off | Emit raw JSON |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--since TEXT` | `-s` | `30m` | How far back to look — e.g. `30m`, `1h`, `24h` |
+| `--query TEXT` | `-q` | `*` | Filter expression (e.g. `level:ERROR`, `"NullPointerException"`) |
+| `--limit INT` | `-n` | `50` | Maximum number of log lines to return |
+| `--resource TEXT` | `-r` | — | Resource type: `ecs`, `lambda`, `cloudrun`, `gke`, etc. |
+| `--output FORMAT` | `-o` | `table` | Output format: `table`, `json`, `jsonlines` |
 
 ## Examples
 
 ```bash
-# Last hour of logs
+# Last 30 minutes of logs (newest first)
 tinkr logs payments-api
 
-# Last 30 minutes, errors only
-tinkr logs payments-api --since 30m --filter level:ERROR
+# Last hour, errors only
+tinkr logs payments-api --since 1h -q 'level:ERROR'
 
 # Search for a specific exception
-tinkr logs payments-api --since 2h --filter "NullPointerException"
+tinkr logs payments-api --since 2h -q '"NullPointerException"'
 
-# Return up to 500 lines
-tinkr logs payments-api --since 6h --limit 500
+# Return up to 200 lines
+tinkr logs payments-api --since 6h -n 200
 
 # Machine-readable output
-tinkr logs payments-api --since 1h --json
+tinkr logs payments-api --since 1h --output jsonlines | jq .message
 ```
 
 ## Output
 
+Results are displayed **oldest first, newest at the bottom** — so the most recent entries are always visible without scrolling up.
+
 ```
-[14:01:03] ERROR  payments-api  Payment charge failed: card_declined (card_id=card_abc123)
-[14:01:04] ERROR  payments-api  Stripe API timeout after 30s (attempt 3/3)
-[14:01:05] WARN   payments-api  Retry queue depth 847 — exceeds soft limit of 100
+2026-04-09 14:01:14  ERROR   Payment charge failed: insufficient_funds
+2026-04-09 14:01:04  ERROR   Stripe API timeout after 30s (attempt 3/3)
+2026-04-09 14:01:03  WARN    Retry queue depth 847 — exceeds soft limit of 100
 ```
 
-## Backend log query language
+## Query syntax
 
-| Backend | Query language |
+The `--query` value uses Tinkr's unified query language, translated to the backend's native syntax at query time:
+
+| Expression | Matches |
 |---|---|
-| Grafana (Loki) | LogQL — `{app="payments-api"} \|= "ERROR"` |
-| CloudWatch | CloudWatch Logs Insights — `filter @message like /ERROR/` |
-| GCP | Cloud Logging filter — `severity=ERROR` |
-| Azure | KQL — `AppTraces \| where SeverityLevel >= 3` |
-| Datadog | Log query — `service:payments-api status:error` |
-| Elastic | Elasticsearch DSL — `{"match": {"level": "ERROR"}}` |
-| OTel | OpenSearch DSL |
+| `level:ERROR` | Error-level logs |
+| `level:(ERROR OR WARN)` | Errors and warnings |
+| `"NullPointerException"` | Full-text search |
+| `message:"timeout"` | Message field contains "timeout" |
+| `*` | All logs (default) |
 
-The `--filter` value is passed to the backend's native query engine. Use the syntax appropriate for your backend.
+| Backend | Translated to |
+|---|---|
+| Grafana (Loki) | LogQL |
+| CloudWatch | Logs Insights |
+| GCP | Cloud Logging filter (`severity >= "ERROR"`, `SEARCH(...)`) |
+| Azure | KQL |
+| Datadog | Log query syntax |
+| Elastic / OTel | Elasticsearch DSL |
 
 ## See also
 

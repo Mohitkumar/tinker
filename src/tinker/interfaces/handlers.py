@@ -67,8 +67,11 @@ async def stream_logs(
     query: str = "*",
     poll: float = 2.0,
     resource: str | None = None,
+    since: "datetime | None" = None,
 ) -> AsyncGenerator[LogEntry, None]:
-    async for entry in client.tail_logs(service, query, poll_interval=poll, resource_type=resource):
+    async for entry in client.tail_logs(
+        service, query, poll_interval=poll, resource_type=resource, since=since
+    ):
         yield entry
 
 

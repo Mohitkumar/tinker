@@ -19,7 +19,7 @@ from tinker.client.config import ServerConfig
 log = structlog.get_logger(__name__)
 
 # How long to wait for a server response on query operations
-_QUERY_TIMEOUT = 30.0
+_QUERY_TIMEOUT = 120.0
 _EXPLAIN_TIMEOUT = 120.0
 _FIX_TIMEOUT = 300.0
 _ANALYZE_TIMEOUT = 300.0  # analysis can take a while
@@ -143,13 +143,20 @@ class RemoteClient:
         query: str = "*",
         poll_interval: float = 2.0,
         resource_type: str | None = None,
+        since: "datetime | None" = None,
     ) -> AsyncGenerator[LogEntry, None]:
-        """Poll the server's query endpoint for new entries."""
+        """Poll the server's query endpoint for new entries.
+
+        If `since` is provided (e.g. the timestamp of the last historical line
+        printed by -n), the cursor starts there so only truly new entries arrive.
+        Otherwise starts 5 seconds in the past to catch any in-flight entries.
+        """
         import asyncio
         from datetime import timedelta, timezone
 
+        cursor = since if since is not None else datetime.now(timezone.utc) - timedelta(seconds=5)
+        # seen tracks (timestamp, message) to deduplicate entries that straddle a poll boundary
         seen: set[tuple[datetime, str]] = set()
-        cursor = datetime.now(timezone.utc) - timedelta(seconds=5)
 
         while True:
             now = datetime.now(timezone.utc)
@@ -161,7 +168,8 @@ class RemoteClient:
                     key = (entry.timestamp, entry.message)
                     if key not in seen:
                         seen.add(key)
-                        cursor = max(cursor, entry.timestamp)
+                        if entry.timestamp > cursor:
+                            cursor = entry.timestamp
                         yield entry
             except Exception as exc:
                 log.warning("remote.tail.poll_failed", error=str(exc))
