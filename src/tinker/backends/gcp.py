@@ -2,9 +2,92 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import structlog
+
+# ── Level extraction helpers ──────────────────────────────────────────────────
+
+# Field names that apps commonly write log level to inside jsonPayload.
+# Checked in priority order when GCP's top-level severity is DEFAULT.
+_PAYLOAD_LEVEL_KEYS: tuple[str, ...] = (
+    "level",
+    "severity",
+    "log_level",
+    "loglevel",
+    "lvl",
+)
+
+# Normalise diverse level strings to Tinkr canonical uppercase forms.
+_LEVEL_NORM: dict[str, str] = {
+    "trace": "DEBUG",
+    "debug": "DEBUG",
+    "info": "INFO",
+    "information": "INFO",
+    "notice": "INFO",
+    "warn": "WARN",
+    "warning": "WARN",
+    "error": "ERROR",
+    "err": "ERROR",
+    "critical": "CRITICAL",
+    "fatal": "CRITICAL",
+    "emergency": "CRITICAL",
+    "alert": "CRITICAL",
+}
+
+# CLF/ELF: `"METHOD /path HTTP/x.x" STATUS bytes`
+_CLF_STATUS_RE = re.compile(r'"\s+(\d{3})\s+')
+# Level keyword scan for arbitrary text logs.
+_LEVEL_KW_RE = re.compile(
+    r"\b(CRITICAL|FATAL|ERROR|WARN(?:ING)?|DEBUG|INFO|TRACE)\b", re.IGNORECASE
+)
+_LEVEL_KW_MAP: dict[str, str] = {
+    "CRITICAL": "CRITICAL",
+    "FATAL": "CRITICAL",
+    "ERROR": "ERROR",
+    "WARN": "WARN",
+    "WARNING": "WARN",
+    "DEBUG": "DEBUG",
+    "INFO": "INFO",
+    "TRACE": "DEBUG",
+}
+
+
+def _level_from_payload(payload: dict) -> str | None:
+    """Extract and normalise a log level from a structured jsonPayload dict.
+
+    Returns None if no recognised level field is present.
+    """
+    for key in _PAYLOAD_LEVEL_KEYS:
+        val = payload.get(key)
+        if val and isinstance(val, str):
+            return _LEVEL_NORM.get(val.lower().strip(), val.upper())
+    return None
+
+
+def _level_from_text(text: str) -> str:
+    """Infer log level from a plain-text log line (ELF/CLF or unstructured).
+
+    Strategy:
+    1. CLF/ELF HTTP status code — 5xx → ERROR, 4xx → WARN, 2xx/3xx → INFO.
+    2. First level keyword found (CRITICAL, ERROR, WARN, DEBUG, INFO, TRACE).
+    3. Default → INFO.
+    """
+    m = _CLF_STATUS_RE.search(text)
+    if m:
+        code = int(m.group(1))
+        if code >= 500:
+            return "ERROR"
+        if code >= 400:
+            return "WARN"
+        return "INFO"
+
+    m = _LEVEL_KW_RE.search(text)
+    if m:
+        return _LEVEL_KW_MAP[m.group(1).upper()]
+
+    return "INFO"
 
 from tinker.backends.base import (
     Anomaly,
@@ -145,26 +228,45 @@ class GCPBackend(ObservabilityBackend):
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
 
-        severity = str(getattr(entry, "severity", "INFO"))
+        # GCP sets severity=DEFAULT when the app writes an unrecognised level field
+        # (e.g. jsonPayload.level instead of jsonPayload.severity).  Fall back to
+        # probing well-known payload field names before giving up.
+        severity = str(getattr(entry, "severity", "") or "").upper()
         trace = str(getattr(entry, "trace", ""))
 
         # Cloud Run request logs — message lives in httpRequest, not in payload
         if any(f in log_name for f in self._HTTP_REQUEST_LOG_FRAGMENTS):
             message = self._message_from_http_request(getattr(entry, "http_request", None))
+            # Infer level from HTTP status when severity is DEFAULT
+            if severity in ("", "DEFAULT"):
+                http = getattr(entry, "http_request", None)
+                status_code = (
+                    http.get("status") if isinstance(http, dict) else getattr(http, "status", None)
+                )
+                if status_code:
+                    code = int(status_code)
+                    severity = "ERROR" if code >= 500 else ("WARN" if code >= 400 else "INFO")
+                else:
+                    severity = "INFO"
         elif isinstance(entry, StructEntry):
             payload = entry.payload or {}
             message = payload.get("message", "")
             if not message and payload:
                 message = str(payload)
+            if severity in ("", "DEFAULT"):
+                severity = _level_from_payload(payload) or "INFO"
         elif isinstance(entry, TextEntry):
-            # varlog/system and similar text-payload logs
+            # varlog/system, ELF/CLF, and other plain-text logs
             message = entry.payload or ""
+            if severity in ("", "DEFAULT"):
+                severity = _level_from_text(message)
         else:
             payload_val = getattr(entry, "payload", None)
             message = str(payload_val) if payload_val else ""
-            # Final fallback: try httpRequest if still empty
             if not message:
                 message = self._message_from_http_request(getattr(entry, "http_request", None))
+            if severity in ("", "DEFAULT"):
+                severity = "INFO"
 
         return LogEntry(
             timestamp=ts,

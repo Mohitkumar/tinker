@@ -41,6 +41,18 @@ _FIELD_MAP: dict[str, str] = {
     # "message" handled separately — see _translate_field_filter
 }
 
+# Apps that write structured JSON logs to stdout often use jsonPayload.level
+# (lowercase) rather than jsonPayload.severity.  GCP only auto-promotes
+# jsonPayload.severity to the top-level severity field — jsonPayload.level is
+# left as-is, resulting in entry.severity = DEFAULT.  To ensure `level:ERROR`
+# matches both native-severity entries and app-written jsonPayload entries we
+# emit an OR that covers the top-level field AND the most common payload keys.
+_PAYLOAD_LEVEL_FIELDS: tuple[str, ...] = (
+    "jsonPayload.level",
+    "jsonPayload.severity",
+    "jsonPayload.log_level",
+)
+
 
 def _gcp_field(name: str) -> str:
     return _FIELD_MAP.get(name, name)
@@ -107,12 +119,24 @@ def _translate_field_filter(node: FieldFilter) -> str:
         # severity is a top-level indexed Cloud Logging field — NOT inside textPayload/jsonPayload.
         # Use >= range operator for single-level queries (e.g. ERROR means ERROR+CRITICAL+ALERT+EMERGENCY).
         # Use exact OR for explicit multi-level selections (e.g. level:(WARNING OR ERROR)).
-        values = [_gcp_severity(v) for v in node.values]
-        if len(values) == 1:
-            mapped = _SEVERITY_RANGE.get(values[0])
-            return mapped if mapped else f'severity="{values[0]}"'
-        parts = [f'severity="{v}"' for v in values]
-        return "(" + " OR ".join(parts) + ")"
+        #
+        # Also OR in common jsonPayload level fields (lowercase) so that apps
+        # which write jsonPayload.level instead of jsonPayload.severity are matched
+        # even though GCP leaves entry.severity = DEFAULT in that case.
+        gcp_values = [_gcp_severity(v) for v in node.values]
+        raw_values = [v.lower() for v in node.values]  # apps typically write lowercase
+
+        if len(gcp_values) == 1:
+            native = _SEVERITY_RANGE.get(gcp_values[0], f'severity="{gcp_values[0]}"')
+        else:
+            native = "(" + " OR ".join(f'severity="{v}"' for v in gcp_values) + ")"
+
+        payload_parts = [
+            f'{f}="{v}"'
+            for v in raw_values
+            for f in _PAYLOAD_LEVEL_FIELDS
+        ]
+        return "(" + native + " OR " + " OR ".join(payload_parts) + ")"
 
     if field == "message":
         # Bare text search covers both textPayload and jsonPayload
