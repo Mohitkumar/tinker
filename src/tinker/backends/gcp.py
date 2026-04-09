@@ -82,10 +82,63 @@ class GCPBackend(ObservabilityBackend):
             )
         )
 
-        return [self._parse_entry(e) for e in entries]
+        return [e for e in (self._parse_entry(x) for x in entries) if e is not None]
 
-    def _parse_entry(self, entry: object) -> LogEntry:
+    @staticmethod
+    def _message_from_http_request(http) -> str:
+        """Build a readable log message from a GCP httpRequest object or dict."""
+        if not http:
+            return ""
+        if isinstance(http, dict):
+            method = http.get("requestMethod", "")
+            url = http.get("requestUrl", "")
+            status = http.get("status", "")
+            latency_raw = http.get("latency", "")
+            latency_ms: float | None = None
+            if latency_raw:
+                try:
+                    latency_ms = float(str(latency_raw).rstrip("s")) * 1000
+                except (ValueError, TypeError):
+                    pass
+        else:
+            # Proto message (google.cloud.logging_v2.types.HttpRequest)
+            method = getattr(http, "request_method", "") or ""
+            url = getattr(http, "request_url", "") or ""
+            status = getattr(http, "status", "") or ""
+            latency_proto = getattr(http, "latency", None)
+            latency_ms = None
+            if latency_proto is not None:
+                try:
+                    latency_ms = (latency_proto.seconds + latency_proto.nanos / 1e9) * 1000
+                except (AttributeError, TypeError):
+                    pass
+
+        parts = [str(p) for p in [method, url] if p]
+        if status:
+            parts.append(f"→ {status}")
+        if latency_ms is not None:
+            parts.append(f"({latency_ms:.0f}ms)")
+        return " ".join(parts)
+
+    # Log name fragments that indicate internal GCP plumbing — skip these entirely.
+    _SKIP_LOG_FRAGMENTS = (
+        "cloudaudit.googleapis.com",
+    )
+
+    # Log name fragments that indicate Cloud Run HTTP request logs.
+    _HTTP_REQUEST_LOG_FRAGMENTS = (
+        "run.googleapis.com%2Frequests",
+        "run.googleapis.com/requests",
+    )
+
+    def _parse_entry(self, entry: object) -> "LogEntry | None":
         from google.cloud.logging import StructEntry, TextEntry
+
+        log_name: str = str(getattr(entry, "log_name", "") or "")
+
+        # Drop internal GCP audit/system-event logs — not useful to users
+        if any(f in log_name for f in self._SKIP_LOG_FRAGMENTS):
+            return None
 
         ts = getattr(entry, "timestamp", datetime.now(timezone.utc))
         if ts.tzinfo is None:
@@ -94,13 +147,23 @@ class GCPBackend(ObservabilityBackend):
         severity = str(getattr(entry, "severity", "INFO"))
         trace = str(getattr(entry, "trace", ""))
 
-        if isinstance(entry, StructEntry):
+        # Cloud Run request logs — message lives in httpRequest, not in payload
+        if any(f in log_name for f in self._HTTP_REQUEST_LOG_FRAGMENTS):
+            message = self._message_from_http_request(getattr(entry, "http_request", None))
+        elif isinstance(entry, StructEntry):
             payload = entry.payload or {}
-            message = payload.get("message", str(payload))
+            message = payload.get("message", "")
+            if not message and payload:
+                message = str(payload)
         elif isinstance(entry, TextEntry):
+            # varlog/system and similar text-payload logs
             message = entry.payload or ""
         else:
-            message = str(getattr(entry, "payload", ""))
+            payload_val = getattr(entry, "payload", None)
+            message = str(payload_val) if payload_val else ""
+            # Final fallback: try httpRequest if still empty
+            if not message:
+                message = self._message_from_http_request(getattr(entry, "http_request", None))
 
         return LogEntry(
             timestamp=ts,
