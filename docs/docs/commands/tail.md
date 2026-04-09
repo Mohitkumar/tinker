@@ -64,5 +64,6 @@ Press `Ctrl-C` to stop.
 
 ## See also
 
+- [Query language reference](query) — full syntax, field aliases, and per-backend examples
 - [`tinkr logs`](logs) — fetch a fixed window of past logs (newest first)
 - [`tinkr investigate`](investigate) — AI-powered investigation starting from recent errors

@@ -58,26 +58,35 @@ Results are displayed **oldest first, newest at the bottom** — so the most rec
 
 ## Query syntax
 
-The `--query` value uses Tinkr's unified query language, translated to the backend's native syntax at query time:
+The `--query` / `-q` value uses Tinkr's unified query language, which is translated to each backend's native syntax at query time. See the [full query language reference](query) for all operators and field aliases.
+
+### Quick reference
 
 | Expression | Matches |
 |---|---|
-| `level:ERROR` | Error-level logs |
-| `level:(ERROR OR WARN)` | Errors and warnings |
-| `"NullPointerException"` | Full-text search |
-| `message:"timeout"` | Message field contains "timeout" |
 | `*` | All logs (default) |
+| `level:ERROR` | Error-level logs |
+| `level:(ERROR OR WARN)` | Errors or warnings |
+| `"NullPointerException"` | Exact phrase anywhere in the message |
+| `timeout` | Bare word — substring match |
+| `message:"stripe timeout"` | Phrase in the `message` field |
+| `service:payments-api AND level:ERROR` | Errors from a specific service |
+| `NOT "health check"` | Exclude health-check noise |
+| `level:ERROR AND NOT service:load-balancer` | Errors, excluding one service |
 
-| Backend | Translated to |
+### Backend translation
+
+| Backend | Native syntax |
 |---|---|
 | Grafana (Loki) | LogQL |
 | CloudWatch | Logs Insights |
-| GCP | Cloud Logging filter (`severity >= "ERROR"`, `SEARCH(...)`) |
+| GCP | Cloud Logging filter |
 | Azure | KQL |
 | Datadog | Log query syntax |
 | Elastic / OTel | Elasticsearch DSL |
 
 ## See also
 
+- [Query language reference](query) — full syntax, field aliases, and per-backend examples
 - [`tinkr tail`](tail) — stream logs live
 - [`tinkr investigate`](investigate) — start an AI-powered investigation from log context

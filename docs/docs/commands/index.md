@@ -29,6 +29,7 @@ tinkr [global-options] <command> [command-options]
 |---|---|
 | [`tinkr logs`](./logs.md) | Fetch recent log lines from a service |
 | [`tinkr tail`](./tail.md) | Stream live logs to the terminal |
+| [Query language](./query.md) | Unified query syntax, field aliases, and backend translation |
 | [`tinkr metrics`](./metrics.md) | Query metric time series |
 | [`tinkr anomaly`](./anomaly.md) | Detect anomalies across all metrics |
 | [`tinkr trace`](./trace.md) | Retrieve distributed traces |
@@ -47,10 +48,10 @@ tinkr [global-options] <command> [command-options]
 
 ```bash
 # Pull last 30 minutes of errors
-tinkr logs payments-api --since 30m --filter level:ERROR
+tinkr logs payments-api --since 30m -q level:ERROR
 
 # Stream live
-tinkr tail payments-api --filter level:ERROR
+tinkr tail payments-api -q level:ERROR
 
 # Query a metric
 tinkr metrics payments-api --metric http_requests_total --since 1h

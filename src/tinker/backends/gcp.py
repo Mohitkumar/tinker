@@ -76,7 +76,8 @@ class GCPBackend(ObservabilityBackend):
             lambda: list(
                 self._logging_client.list_entries(
                     filter_=filter_str,
-                    page_size=limit,
+                    max_results=limit,
+                    page_size=min(limit, 1000),
                     order_by="timestamp desc",
                 )
             )
