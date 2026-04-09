@@ -33,6 +33,11 @@ _FIELD_MAP: dict[str, str] = {
     "span_id": "span.id",
 }
 
+# Apps that write flat JSON (not ECS) often put the log level under a root
+# field rather than the nested log.level.  We cover all common variants with a
+# should so that level:ERROR matches regardless of which field the app uses.
+_LEVEL_FIELDS = ("log.level", "level", "severity")
+
 
 def _es_field(name: str) -> str:
     return _FIELD_MAP.get(name, name)
@@ -46,11 +51,23 @@ def translate(node: QueryNode) -> dict[str, Any]:
         return {"match": {"message": node.text}}
 
     if isinstance(node, FieldFilter):
+        if node.field == "level":
+            # Cover ECS (log.level), flat (level), and alternative (severity).
+            # Apps write lowercase; Filebeat may write uppercase — use lowercase
+            # and rely on the index mapping being keyword/case-folded.
+            values = [v.lower() for v in node.values]
+            clauses: list[dict[str, Any]] = []
+            for f in _LEVEL_FIELDS:
+                if len(values) == 1:
+                    clauses.append({"term": {f: values[0]}})
+                else:
+                    clauses.append({"terms": {f: values}})
+            return {"bool": {"should": clauses, "minimum_should_match": 1}}
+
         field = _es_field(node.field)
-        values = [v.lower() for v in node.values] if node.field == "level" else node.values
-        if len(values) == 1:
-            return {"term": {field: values[0]}}
-        return {"terms": {field: values}}
+        if len(node.values) == 1:
+            return {"term": {field: node.values[0]}}
+        return {"terms": {field: node.values}}
 
     if isinstance(node, AndExpr):
         left = translate(node.left)

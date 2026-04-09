@@ -30,7 +30,9 @@ _SEVERITY_MAP: dict[str, str] = {
 # Per-table column names for common fields
 _TABLE_FIELD_MAP: dict[str, dict[str, str]] = {
     "AppTraces": {"level": "SeverityLevel", "service": "AppRoleName", "message": "Message"},
-    "ContainerLog": {"level": "LogEntrySource", "service": "ContainerName", "message": "LogEntry"},
+    # ContainerLog has no structured level column — LogEntrySource is "stdout"/"stderr".
+    # Level must be extracted from the JSON payload in LogEntry using parse_json().
+    "ContainerLog": {"level": "_parsed_level", "service": "ContainerName", "message": "LogEntry"},
     "AppServiceConsoleLogs": {
         "level": "Level",
         "service": "ScmType",
@@ -68,10 +70,31 @@ def translate(node: QueryNode, field_map: dict[str, str]) -> str:
 
     if isinstance(node, FieldFilter):
         kql_field = field_map.get(node.field, node.field)
-        values = [_kql_severity(v) for v in node.values] if node.field == "level" else node.values
-        if len(values) == 1:
-            return f'{kql_field} == "{values[0]}"'
-        vals_str = ", ".join(f'"{v}"' for v in values)
+
+        if node.field == "level":
+            values = [_kql_severity(v) for v in node.values]
+            if kql_field == "_parsed_level":
+                # ContainerLog has no level column — extract from JSON payload.
+                # parse_json(LogEntry) returns a dynamic; check common field names.
+                if len(values) == 1:
+                    v = values[0]
+                    return (
+                        f'(parse_json(LogEntry).level =~ "{v}" '
+                        f'or parse_json(LogEntry).severity =~ "{v}")'
+                    )
+                vals_str = ", ".join(f'"{v}"' for v in values)
+                return (
+                    f'(parse_json(LogEntry).level in~ ({vals_str}) '
+                    f'or parse_json(LogEntry).severity in~ ({vals_str}))'
+                )
+            if len(values) == 1:
+                return f'{kql_field} == "{values[0]}"'
+            vals_str = ", ".join(f'"{v}"' for v in values)
+            return f"{kql_field} in ({vals_str})"
+
+        if len(node.values) == 1:
+            return f'{kql_field} == "{node.values[0]}"'
+        vals_str = ", ".join(f'"{v}"' for v in node.values)
         return f"{kql_field} in ({vals_str})"
 
     if isinstance(node, AndExpr):

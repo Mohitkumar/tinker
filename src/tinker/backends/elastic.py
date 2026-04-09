@@ -81,13 +81,23 @@ class ElasticBackend(ObservabilityBackend):
         except ValueError:
             ts = datetime.now(timezone.utc)
 
+        # Level field priority:
+        #   1. ECS nested:  log.level      (Filebeat / Elastic Agent)
+        #   2. Root flat:   level          (most app JSON loggers)
+        #   3. Root flat:   severity       (some structured loggers)
+        raw_level = (
+            src.get("log", {}).get("level")
+            or src.get("level")
+            or src.get("severity")
+            or "INFO"
+        )
         return LogEntry(
             timestamp=ts,
             message=src.get("message", ""),
-            level=src.get("log", {}).get("level", "INFO").upper(),
-            service=src.get("service", {}).get("name", ""),
-            trace_id=src.get("trace", {}).get("id", ""),
-            span_id=src.get("span", {}).get("id", ""),
+            level=str(raw_level).upper(),
+            service=src.get("service", {}).get("name", "") or src.get("service", ""),
+            trace_id=src.get("trace", {}).get("id", "") or src.get("trace_id", ""),
+            span_id=src.get("span", {}).get("id", "") or src.get("span_id", ""),
         )
 
     async def get_metrics(

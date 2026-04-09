@@ -89,27 +89,17 @@ class OTelBackend(ObservabilityBackend):
         if not self._os_url:
             raise RuntimeError("OpenSearch is not configured (OPENSEARCH_URL is not set)")
 
+        from tinker.query import parse_query, translate_for
+
+        ast = parse_query(query)
+        query_dsl = translate_for("otel", ast, service=service)
+
         dsl: dict[str, Any] = {
             "size": limit,
             "sort": [{"@timestamp": {"order": "desc"}}],
             "query": {
                 "bool": {
-                    "must": [
-                        {
-                            "bool": {
-                                "should": [
-                                    {"match": {"body": query}},
-                                    {
-                                        "query_string": {
-                                            "query": query,
-                                            "fields": ["body", "attributes.*"],
-                                        }
-                                    },
-                                ]
-                            }
-                        },
-                        {"term": {"resource.attributes.service.name": service}},
-                    ],
+                    "must": [query_dsl],
                     "filter": [
                         {
                             "range": {
@@ -150,10 +140,20 @@ class OTelBackend(ObservabilityBackend):
         resource = src.get("resource", {}).get("attributes", {})
         attrs = src.get("attributes", {})
 
+        # Level priority:
+        #   1. OTel standard: severity_text  (set by OTel SDK)
+        #   2. App attribute: attributes.level / attributes.severity
+        #      (written directly by apps not using the OTel SDK)
+        raw_level = (
+            src.get("severity_text")
+            or attrs.get("level")
+            or attrs.get("severity")
+            or "INFO"
+        )
         return LogEntry(
             timestamp=ts,
             message=sanitize_log_content(str(src.get("body", ""))),
-            level=str(src.get("severity_text", "INFO")).upper(),
+            level=str(raw_level).upper(),
             service=resource.get("service.name", ""),
             trace_id=str(src.get("trace_id", "")),
             span_id=str(src.get("span_id", "")),

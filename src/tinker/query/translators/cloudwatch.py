@@ -43,6 +43,14 @@ def translate(node: QueryNode) -> str:
 
     if isinstance(node, FieldFilter):
         field = _cw_field(node.field)
+        if node.field == "level":
+            # Apps often write lowercase ("error", "warn") while others write
+            # uppercase ("ERROR").  Insights `like` with a case-insensitive
+            # regexp covers both without requiring the app to normalise.
+            if len(node.values) == 1:
+                return f"{field} like /(?i)^{node.values[0]}$/"
+            pattern = "|".join(node.values)
+            return f"{field} like /(?i)^({pattern})$/"
         if len(node.values) == 1:
             return f"{field} = '{node.values[0]}'"
         vals = ", ".join(f"'{v}'" for v in node.values)

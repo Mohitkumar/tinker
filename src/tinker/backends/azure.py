@@ -132,7 +132,7 @@ class AzureBackend(ObservabilityBackend):
             ts = datetime.now(timezone.utc)
 
         # Normalise severity across AppTraces, AppExceptions, AzureDiagnostics
-        severity_map = {
+        severity_map: dict[Any, str] = {
             "Verbose": "DEBUG",
             "Information": "INFO",
             "Warning": "WARN",
@@ -144,11 +144,41 @@ class AzureBackend(ObservabilityBackend):
             3: "ERROR",
             4: "CRITICAL",
         }
-        raw_level = row.get("SeverityLevel") or row.get("Level") or "INFO"
-        level = severity_map.get(raw_level, str(raw_level).upper())
+        raw_level = row.get("SeverityLevel") or row.get("Level")
+        level: str
+
+        if raw_level:
+            level = severity_map.get(raw_level, str(raw_level).upper())
+        elif "LogEntry" in row:
+            # ContainerLog table: no level column — try to parse JSON from the
+            # raw log line (apps writing structured JSON to stdout on AKS).
+            import json as _json
+
+            log_entry_text = str(row.get("LogEntry", ""))
+            try:
+                parsed = _json.loads(log_entry_text)
+                payload_level = parsed.get("level") or parsed.get("severity") or "INFO"
+                level = severity_map.get(payload_level, str(payload_level).upper())
+            except (_json.JSONDecodeError, TypeError):
+                # Plain-text log line — scan for known level keywords
+                import re as _re
+
+                m = _re.search(
+                    r"\b(CRITICAL|FATAL|ERROR|WARN(?:ING)?|DEBUG|INFO)\b",
+                    log_entry_text,
+                    _re.IGNORECASE,
+                )
+                kw_map = {
+                    "CRITICAL": "CRITICAL", "FATAL": "CRITICAL", "ERROR": "ERROR",
+                    "WARN": "WARN", "WARNING": "WARN", "DEBUG": "DEBUG", "INFO": "INFO",
+                }
+                level = kw_map.get(m.group(1).upper(), "INFO") if m else "INFO"
+        else:
+            level = "INFO"
 
         message = str(
             row.get("Message")
+            or row.get("LogEntry")
             or row.get("RenderedDescription")
             or row.get("ResultDescription")
             or ""

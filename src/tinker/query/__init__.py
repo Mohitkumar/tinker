@@ -75,10 +75,15 @@ def translate_for(
 
             return to_search_query(node, service)
 
-        case "elastic" | "elasticsearch" | "opensearch" | "otel":
+        case "elastic" | "elasticsearch" | "opensearch":
             from tinker.query.translators.elastic import to_query
 
             return to_query(node, service, resource_type=resource_type)
+
+        case "otel" | "opentelemetry":
+            from tinker.query.translators.otel import to_query as otel_to_query
+
+            return otel_to_query(node, service)
 
         case _:
             raise ValueError(f"Unknown backend: {backend!r}")
